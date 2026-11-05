@@ -72,4 +72,27 @@ docs/adr/      架构决策记录
 
 ## 常用命令
 
-（服务骨架完成后补充：启动、测试、lint、类型检查、迁移。）
+```bash
+# 启动全部服务（不需要 .env，默认 demo 模式）
+docker compose up --build -d
+# Dashboard: http://127.0.0.1:3000   API: http://127.0.0.1:8000/health
+
+# 后端检查（uv 管理依赖）
+uv sync
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy
+uv run pytest
+# 需要数据库的测试：先启动 db 服务，并设置 TEST_DATABASE_URL
+
+# 前端检查（在 apps/web 下）
+npm ci
+npm run lint
+npx tsc --noEmit
+npm run build
+
+# 新建数据库迁移（改动需逐行审查）
+uv run alembic revision --autogenerate -m "说明"
+```
+
+本机连接数据库时用 `127.0.0.1`，不要用 `localhost`。Windows 会先尝试 IPv6，连接要等两分钟才超时。
