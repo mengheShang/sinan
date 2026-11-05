@@ -1,6 +1,6 @@
-"""Worker 入口：定时同步和提取。
+"""Worker entry point: scheduled sync and extraction.
 
-M0 只运行一个心跳任务。Worker 永远只持有只读令牌。
+M0 only runs a heartbeat job. The Worker only ever holds the read-only token.
 """
 
 import logging

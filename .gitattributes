@@ -1,12 +1,12 @@
-# 仓库内统一使用 LF 换行，避免 Windows 和 Linux 容器之间出现换行差异
+# Use LF everywhere so Windows and the Linux containers agree on line endings
 * text=auto eol=lf
 
-# Windows 脚本保留 CRLF
+# Windows scripts keep CRLF
 *.ps1 text eol=crlf
 *.bat text eol=crlf
 *.cmd text eol=crlf
 
-# 二进制文件
+# Binary files
 *.png binary
 *.jpg binary
 *.jpeg binary

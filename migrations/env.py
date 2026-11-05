@@ -1,11 +1,11 @@
-"""Alembic 运行环境。数据库地址从 app.config 读取，不写在 alembic.ini 中。"""
+"""Alembic environment. The database URL comes from app.config, not alembic.ini."""
 
 from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import create_engine, pool
 
-import app.db.models  # noqa: F401  导入所有模型，让 autogenerate 能看到它们
+import app.db.models  # noqa: F401  import every model so autogenerate can see them
 from app.config import get_settings
 from app.db.base import Base
 
@@ -23,7 +23,7 @@ def get_url() -> str:
 
 
 def run_migrations_offline() -> None:
-    """生成 SQL 脚本，不连接数据库。"""
+    """Emit SQL without connecting to the database."""
     context.configure(
         url=get_url(),
         target_metadata=target_metadata,
@@ -35,7 +35,7 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    """连接数据库并执行迁移。"""
+    """Connect to the database and run migrations."""
     engine = create_engine(get_url(), poolclass=pool.NullPool)
     with engine.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)

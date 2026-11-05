@@ -1,5 +1,5 @@
-"""ORM 模型。
+"""ORM models.
 
-第一阶段的 11 张表在 M1 开头由用户确定 Schema 后加入。
-新增模型都要在本模块中定义或导入，Alembic 才能发现它们。
+The 11 phase-one tables are added at the start of M1, once the user has settled the schema.
+Every model must be defined in or imported into this module so Alembic can discover it.
 """

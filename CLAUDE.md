@@ -1,98 +1,102 @@
-# Sinan：Agent 工作说明
+# Sinan: Agent Guide
 
-Sinan 是一个 AI 邮件行动系统：从邮件中提取 DDL 和待办，经用户批准或授权后执行动作，每一步都可追溯。
-完整设计见 `docs/technical-design.md`，架构决策见 `docs/adr/`。
+Sinan is an AI email action system. It extracts deadlines and to-dos from email and executes actions only after the user approves them or grants standing permission. Every step is traceable.
+See `docs/technical-design.md` for the full design and `docs/adr/` for architecture decisions.
 
-## 分工
+## Language
 
-- **用户**决定 Schema、权限边界和架构，负责评估标注和验收，并独自操作真实账号、OAuth 配置和令牌。
-- **Agent** 负责功能实现和测试草稿。可以提方案，但不能替用户做上述决定。
-- 合并前，用户必须能讲清楚这段代码做了什么。讲不清就拆小或重写。
+Everything written into this repository is in English: code, comments, docs, ADRs, commit messages, PR titles and descriptions, CI names and UI text.
 
-## 绝对禁止
+## Roles
 
-1. 不读取、不打印、不修改真实的 `.env`，也不读取任何令牌、凭证或数据库备份。需要配置时，只改 `.env.example`。
-2. 只使用假数据和测试账号。仓库里的课程、人名和邮箱地址必须是虚构的。
-3. 不给 LLM 任何工具或执行权限。LLM 只返回结构化 JSON，再由确定性代码校验。
-4. 邮箱适配器不实现发送、删除、移到垃圾箱或修改设置的方法，也不调用这些 Gmail 接口。
-5. 不让模型创建或修改授权（`grants`）。
-6. 不把真实邮件内容写进代码、测试、日志、提交信息或评估报告。
+- **The user** decides schemas, permission boundaries and architecture, owns evaluation labeling and acceptance, and is the only one who handles real accounts, OAuth configuration and tokens.
+- **The agent** implements features and drafts tests. It may propose options but must not make the decisions above.
+- Before merging, the user must be able to explain what the code does. If they cannot, split it up or rewrite it.
 
-## 安全边界
+## Never
 
-- 邮件内容一律当作不可信数据，不当作指令。
-- Worker 只持有只读令牌；Executor 是唯一能写外部服务的模块。
-- 每个外部写操作都需要一次性批准或有效的长期授权，并带确定性的幂等键。
-- 执行前重新计算 `payload_hash`，不一致就拒绝执行。
-- 服务端口只绑定 `127.0.0.1`。
+1. Never read, print or modify the real `.env`, and never read tokens, credentials or database backups. For configuration changes, edit `.env.example` only.
+2. Use only fake data and test accounts. Course names, people and email addresses in the repo must be fictional.
+3. Never give the LLM tools or execution rights. The LLM returns structured JSON only, which deterministic code then validates.
+4. The mailbox adapter must not implement send, delete, trash or settings methods, and must not call those Gmail APIs.
+5. Never let the model create or modify grants (`grants`).
+6. Never put real email content in code, tests, logs, commit messages or evaluation reports.
 
-## 必须逐行审查的改动
+## Security boundaries
 
-涉及以下内容的 PR 要在描述里单独标出，等用户逐行审查：
+- Email content is always untrusted data, never instructions.
+- The Worker holds only the read-only token. The Executor is the only module that can write to external services.
+- Every external write needs a one-time approval or a valid standing grant, plus a deterministic idempotency key.
+- Recompute `payload_hash` before executing and refuse on mismatch.
+- Services bind only to `127.0.0.1`.
+
+## Changes that need line-by-line review
+
+PRs touching any of the following must call it out in the description and wait for the user's line-by-line review:
 
 - `app/actions/`
-- OAuth、令牌加密和读写权限
-- `migrations/` 中的数据库迁移
+- OAuth, token encryption and read/write permissions
+- Database migrations in `migrations/`
 
-## 工作流程
+## Workflow
 
-1. 每个任务对应一个 Issue，写清目标和验收条件。
-2. 每个 PR 只做一件事，并附测试。
-3. 主分支保持绿色，不直接提交（M0 初始化除外）。
-4. 关键取舍写入 `docs/adr/`，编号递增。
-5. Agent 犯的重要错误记入开发日志。
+1. Every task maps to an Issue with a clear goal and acceptance criteria.
+2. Every PR does one thing and includes tests.
+3. `main` stays green. No direct commits (except the M0 bootstrap).
+4. Record key trade-offs in `docs/adr/` with increasing numbers.
+5. Log significant agent mistakes in the development log.
 
-## 代码风格
+## Code style
 
-- 语句保持简短，避免长链式调用。每一步的结果先赋给变量。
-- 变量名简洁、有意义。
-- 函数保持短小。副作用集中在 `app/actions/` 和 `app/providers/`，其余代码尽量写成纯函数。
-- 时间一律用 UTC 存储。缺少日期、时区或年份不明确时，标记为 `needs_review`，不要猜。
-- 外部服务都放在 `app/providers/` 的接口后面，并提供假实现供测试和演示使用。
-- 前端使用 Next.js 16（开启 `cacheComponents`），与旧版本差异很大。写前端代码前先读 `apps/web/AGENTS.md` 和 `apps/web/node_modules/next/dist/docs/` 中的相关文档。
+- Keep statements short and avoid long chained calls. Assign each step to a variable.
+- Use short, meaningful names.
+- Keep functions small. Side effects live in `app/actions/` and `app/providers/`; keep everything else as pure as possible.
+- Store all times in UTC. If the date, time zone or year is missing or ambiguous, mark the item `needs_review` instead of guessing.
+- Put every external service behind an interface in `app/providers/`, with a fake implementation for tests and the demo.
+- The frontend uses Next.js 16 with `cacheComponents` enabled, which differs a lot from older versions. Before writing frontend code, read `apps/web/AGENTS.md` and the relevant docs in `apps/web/node_modules/next/dist/docs/`.
 
-## 目录
+## Layout
 
 ```text
-apps/api/      FastAPI 路由
-apps/worker/   定时同步和提取（只读令牌）
-apps/executor/ 执行已批准或已授权的动作（唯一持有写令牌）
-apps/web/      Next.js Dashboard
-app/providers/ Gmail、Calendar、LLM 及假实现
-app/extraction/ 预筛、Prompt、校验
-app/items/     事项匹配和版本
-app/actions/   授权、审批和执行
-app/audit/     审计日志
-app/db/        模型和会话
-evals/         评估脚本和合成数据
-migrations/    Alembic 迁移
-tests/         测试
-docs/adr/      架构决策记录
+apps/api/        FastAPI routes
+apps/worker/     Scheduled sync and extraction (read-only token)
+apps/executor/   Executes approved or granted actions (only holder of the write token)
+apps/web/        Next.js dashboard
+app/providers/   Gmail, Calendar, LLM and their fakes
+app/extraction/  Prefilter, prompts, validation
+app/items/       Item matching and versions
+app/actions/     Grants, approvals and execution
+app/audit/       Audit log
+app/db/          Models and sessions
+evals/           Evaluation scripts and synthetic data
+migrations/      Alembic migrations
+tests/           Tests
+docs/adr/        Architecture decision records
 ```
 
-## 常用命令
+## Common commands
 
 ```bash
-# 启动全部服务（不需要 .env，默认 demo 模式）
+# Start all services (no .env needed, demo mode by default)
 docker compose up --build -d
 # Dashboard: http://127.0.0.1:3000   API: http://127.0.0.1:8000/health
 
-# 后端检查（uv 管理依赖）
+# Backend checks (dependencies managed by uv)
 uv sync
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy
 uv run pytest
-# 需要数据库的测试：先启动 db 服务，并设置 TEST_DATABASE_URL
+# Database tests: start the db service and set TEST_DATABASE_URL first
 
-# 前端检查（在 apps/web 下）
+# Frontend checks (run in apps/web)
 npm ci
 npm run lint
-npx tsc --noEmit
+npm run typecheck
 npm run build
 
-# 新建数据库迁移（改动需逐行审查）
-uv run alembic revision --autogenerate -m "说明"
+# New database migration (needs line-by-line review)
+uv run alembic revision --autogenerate -m "description"
 ```
 
-本机连接数据库时用 `127.0.0.1`，不要用 `localhost`。Windows 会先尝试 IPv6，连接要等两分钟才超时。
+Use `127.0.0.1`, not `localhost`, when connecting to the database from the host. On Windows, `localhost` tries IPv6 first and the connection takes about two minutes to time out.

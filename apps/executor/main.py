@@ -1,6 +1,7 @@
-"""Executor 入口：执行已批准或已授权的动作。
+"""Executor entry point: runs approved or granted actions.
 
-这是唯一能写外部服务的模块。M0 只运行一个心跳任务，不执行任何动作。
+This is the only module that can write to external services.
+M0 only runs a heartbeat job and executes no actions.
 """
 
 import logging
