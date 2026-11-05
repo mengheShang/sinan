@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   backend:
-    name: 后端检查和测试
+    name: Backend checks and tests
     runs-on: ubuntu-latest
     services:
       db:
@@ -39,29 +39,29 @@ jobs:
         with:
           version: "0.13.7"
           enable-cache: true
-      - name: 安装依赖
+      - name: Install dependencies
         run: uv sync --locked
       - name: Ruff lint
         run: uv run ruff check .
-      - name: Ruff 格式
+      - name: Ruff format
         run: uv run ruff format --check .
       - name: mypy
         run: uv run mypy
-      - name: 禁用接口检查
-        # 邮箱适配器不得调用发信、删信、移到垃圾箱或修改设置的 Gmail 接口
+      - name: Forbidden API check
+        # The mailbox adapter must never call Gmail send, delete, trash or settings APIs
         run: |
           pattern='messages\(\)\s*\.\s*(send|delete|trash|batchDelete)|drafts\(\)\s*\.\s*send|\.settings\(\)'
           if grep -rnE "$pattern" --include='*.py' app apps; then
-            echo "发现禁用的 Gmail 接口调用"
+            echo "Found a call to a forbidden Gmail API"
             exit 1
           fi
-      - name: 数据库迁移
+      - name: Database migrations
         run: uv run alembic upgrade head
       - name: pytest
         run: uv run pytest -q
 
   frontend:
-    name: 前端检查和构建
+    name: Frontend checks and build
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -77,35 +77,36 @@ jobs:
       - name: ESLint
         run: npm run lint
       - name: TypeScript
-        run: npx tsc --noEmit
-      - name: 构建
+        # Generates Next.js route types (LayoutProps, PageProps) before tsc
+        run: npm run typecheck
+      - name: Build
         run: npm run build
 
   compose:
-    name: 一键启动冒烟测试
+    name: Compose smoke test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: 启动全部服务
+      - name: Start all services
         run: docker compose up --build -d --wait --wait-timeout 300
-      - name: 检查健康接口
+      - name: Check health endpoints
         run: |
           curl -fsS http://127.0.0.1:8000/health
           curl -fsS http://127.0.0.1:8000/health/db
           curl -fsS http://127.0.0.1:3000 | grep -q "Sinan"
-      - name: 输出日志
+      - name: Dump logs
         if: failure()
         run: docker compose logs
-      - name: 停止服务
+      - name: Stop services
         if: always()
         run: docker compose down -v
 
   secrets:
-    name: 密钥扫描
+    name: Secret scan
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # gitleaks-action 需要读取 PR 中的提交列表
+      # gitleaks-action reads the list of commits in the PR
       pull-requests: read
     steps:
       - uses: actions/checkout@v5
