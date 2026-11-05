@@ -1,0 +1,35 @@
+.main {
+  max-width: 640px;
+  margin: 48px auto;
+  padding: 0 16px;
+  font-family: system-ui, sans-serif;
+}
+
+.list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.list li {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.ok,
+.bad {
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 14px;
+}
+
+.ok {
+  background: #15803d;
+}
+
+.bad {
+  background: #b91c1c;
+}
