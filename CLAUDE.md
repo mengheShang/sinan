@@ -49,6 +49,7 @@ Sinan 是一个 AI 邮件行动系统：从邮件中提取 DDL 和待办，经�
 - 函数保持短小。副作用集中在 `app/actions/` 和 `app/providers/`，其余代码尽量写成纯函数。
 - 时间一律用 UTC 存储。缺少日期、时区或年份不明确时，标记为 `needs_review`，不要猜。
 - 外部服务都放在 `app/providers/` 的接口后面，并提供假实现供测试和演示使用。
+- 前端使用 Next.js 16（开启 `cacheComponents`），与旧版本差异很大。写前端代码前先读 `apps/web/AGENTS.md` 和 `apps/web/node_modules/next/dist/docs/` 中的相关文档。
 
 ## 目录
 
