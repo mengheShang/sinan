@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend checks and tests
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: sinan
+          POSTGRES_PASSWORD: sinan
+          POSTGRES_DB: sinan
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sinan -d sinan"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://sinan:sinan@127.0.0.1:5432/sinan
+      TEST_DATABASE_URL: postgresql+psycopg://sinan:sinan@127.0.0.1:5432/sinan
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.7"
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --locked
+      - name: Ruff lint
+        run: uv run ruff check .
+      - name: Ruff format
+        run: uv run ruff format --check .
+      - name: mypy
+        run: uv run mypy
+      - name: Forbidden API check
+        # The mailbox adapter must never call Gmail send, delete, trash or settings APIs
+        run: |
+          pattern='messages\(\)\s*\.\s*(send|delete|trash|batchDelete)|drafts\(\)\s*\.\s*send|\.settings\(\)'
+          if grep -rnE "$pattern" --include='*.py' app apps; then
+            echo "Found a call to a forbidden Gmail API"
+            exit 1
+          fi
+      - name: Database migrations
+        run: uv run alembic upgrade head
+      - name: pytest
+        run: uv run pytest -q
+
+  frontend:
+    name: Frontend checks and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "26"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - name: ESLint
+        run: npm run lint
+      - name: TypeScript
+        # Generates Next.js route types (LayoutProps, PageProps) before tsc
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+
+  compose:
+    name: Compose smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Start all services
+        run: docker compose up --build -d --wait --wait-timeout 300
+      - name: Check health endpoints
+        run: |
+          curl -fsS http://127.0.0.1:8000/health
+          curl -fsS http://127.0.0.1:8000/health/db
+          curl -fsS http://127.0.0.1:3000 | grep -q "Sinan"
+      - name: Dump logs
+        if: failure()
+        run: docker compose logs
+      - name: Stop services
+        if: always()
+        run: docker compose down -v
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # gitleaks-action reads the list of commits in the PR
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
