@@ -1,0 +1,60 @@
+# ---- 密钥和真实数据：绝不进 Git ----
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+client_secret*.json
+credentials*.json
+token*.json
+
+# 数据库备份
+backups/
+*.dump
+*.sql.gz
+*.backup
+
+# 真实评估数据应放在仓库外；以下目录作为第二道防线
+evals/real/
+evals/private/
+data/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# ---- Node / Next.js ----
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+npm-debug.log*
+
+# ---- Playwright ----
+test-results/
+playwright-report/
+playwright/.cache/
+
+# ---- 编辑器和系统 ----
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Claude Code 本地设置
+.claude/settings.local.json
