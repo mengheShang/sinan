@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=None, extra="ignore")
 
     sinan_mode: Literal["demo", "live"] = "demo"
-    database_url: str = "postgresql+psycopg://sinan:sinan@localhost:5432/sinan"
+    database_url: str = "postgresql+psycopg://sinan:sinan@127.0.0.1:5432/sinan"
 
 
 @lru_cache

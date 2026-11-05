@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import styles from "./page.module.css";
 
 // 在服务端请求 API，浏览器不直接访问 API，因此不需要 CORS
-const apiUrl = process.env.API_URL ?? "http://localhost:8000";
+const apiUrl = process.env.API_URL ?? "http://127.0.0.1:8000";
 
 type Check = { label: string; ok: boolean; detail: string };
 
