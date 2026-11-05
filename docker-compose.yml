@@ -1,0 +1,74 @@
+# 一条命令启动：docker compose up --build
+# 不需要 .env 也能以 demo 模式运行；如需修改，复制 .env.example 为 .env。
+# 所有端口只绑定 127.0.0.1，局域网内其他设备无法访问。
+
+name: sinan
+
+x-backend: &backend
+  build:
+    context: .
+    dockerfile: docker/backend.Dockerfile
+  image: sinan-backend:dev
+  restart: unless-stopped
+  environment:
+    SINAN_MODE: ${SINAN_MODE:-demo}
+    DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-sinan}:${POSTGRES_PASSWORD:-sinan}@db:5432/${POSTGRES_DB:-sinan}
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sinan}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sinan}
+      POSTGRES_DB: ${POSTGRES_DB:-sinan}
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    <<: *backend
+    # 启动前先执行数据库迁移
+    command: sh -c "alembic upgrade head && uvicorn apps.api.main:app --host 0.0.0.0 --port 8000"
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  worker:
+    <<: *backend
+    # 只读令牌：同步、预筛、提取、每日摘要
+    command: python -m apps.worker.main
+
+  executor:
+    <<: *backend
+    # 唯一持有写令牌的服务
+    command: python -m apps.executor.main
+
+  web:
+    build:
+      context: apps/web
+    image: sinan-web:dev
+    restart: unless-stopped
+    environment:
+      API_URL: http://api:8000
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:

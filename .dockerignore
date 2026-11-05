@@ -1,0 +1,19 @@
+# 构建上下文中绝不包含密钥和本地环境
+.env
+.env.*
+!.env.example
+secrets/
+backups/
+evals/real/
+evals/private/
+data/
+
+.git
+.venv
+**/__pycache__
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# 前端有自己的构建上下文
+apps/web
