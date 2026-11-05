@@ -1,6 +1,6 @@
-Alembic 迁移目录。
+Alembic migrations.
 
-- 数据库地址来自 DATABASE_URL 环境变量（见 app/config.py）。
-- 新建迁移：uv run alembic revision --autogenerate -m "说明"
-- 执行迁移：uv run alembic upgrade head（API 容器启动时会自动执行）
-- 本目录下的所有改动都必须逐行审查。
+- The database URL comes from the DATABASE_URL environment variable (see app/config.py).
+- New migration: uv run alembic revision --autogenerate -m "description"
+- Apply migrations: uv run alembic upgrade head (the API container runs this on start)
+- Every change in this directory needs line-by-line review.

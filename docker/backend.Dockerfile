@@ -1,4 +1,4 @@
-# API、Worker、Executor 共用的 Python 镜像，通过不同的启动命令区分角色
+# Shared Python image for API, Worker and Executor; the start command picks the role
 FROM python:3.12-slim
 
 COPY --from=ghcr.io/astral-sh/uv:0.13.7 /uv /bin/uv
@@ -10,7 +10,7 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /srv
 
-# 先只复制依赖清单，代码改动时可以复用依赖层的缓存
+# Copy the dependency manifests first so code changes reuse the cached dependency layer
 COPY pyproject.toml uv.lock .python-version ./
 RUN uv sync --frozen --no-dev
 

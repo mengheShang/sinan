@@ -1,4 +1,4 @@
-"""FastAPI 入口。M0 只提供健康检查。"""
+"""FastAPI entry point. M0 only provides health checks."""
 
 from fastapi import FastAPI, Response, status
 from sqlalchemy.exc import SQLAlchemyError
@@ -11,14 +11,14 @@ app = FastAPI(title="Sinan API", version="0.1.0")
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    """进程存活检查，不访问数据库。"""
+    """Liveness check. Does not touch the database."""
     settings = get_settings()
     return {"status": "ok", "mode": settings.sinan_mode}
 
 
 @app.get("/health/db")
 def health_db(response: Response) -> dict[str, str]:
-    """数据库连通性检查。"""
+    """Database connectivity check."""
     engine = get_engine()
     try:
         ok = check_db(engine)

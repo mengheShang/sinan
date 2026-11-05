@@ -1,6 +1,6 @@
-# 一条命令启动：docker compose up --build
-# 不需要 .env 也能以 demo 模式运行；如需修改，复制 .env.example 为 .env。
-# 所有端口只绑定 127.0.0.1，局域网内其他设备无法访问。
+# One command to start everything: docker compose up --build
+# Runs in demo mode without a .env file; to change settings, copy .env.example to .env.
+# All ports bind to 127.0.0.1 only, so other devices on the network cannot reach them.
 
 name: sinan
 
@@ -37,7 +37,7 @@ services:
 
   api:
     <<: *backend
-    # 启动前先执行数据库迁移
+    # Run database migrations before starting
     command: sh -c "alembic upgrade head && uvicorn apps.api.main:app --host 0.0.0.0 --port 8000"
     ports:
       - "127.0.0.1:8000:8000"
@@ -49,12 +49,12 @@ services:
 
   worker:
     <<: *backend
-    # 只读令牌：同步、预筛、提取、每日摘要
+    # Read-only token: sync, prefilter, extraction, daily digest
     command: python -m apps.worker.main
 
   executor:
     <<: *backend
-    # 唯一持有写令牌的服务
+    # The only service that holds the write token
     command: python -m apps.executor.main
 
   web:

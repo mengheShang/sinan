@@ -1,4 +1,4 @@
-"""运行配置。只从环境变量读取，不直接读取 .env 文件。"""
+"""Runtime settings. Read from environment variables only, never from a .env file."""
 
 from functools import lru_cache
 from typing import Literal
