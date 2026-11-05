@@ -54,7 +54,8 @@ Sinan 是一个 AI 邮件行动系统：从邮件中提取 DDL 和待办，经�
 
 ```text
 apps/api/      FastAPI 路由
-apps/worker/   定时同步和提取
+apps/worker/   定时同步和提取（只读令牌）
+apps/executor/ 执行已批准或已授权的动作（唯一持有写令牌）
 apps/web/      Next.js Dashboard
 app/providers/ Gmail、Calendar、LLM 及假实现
 app/extraction/ 预筛、Prompt、校验

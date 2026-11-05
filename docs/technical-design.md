@@ -91,6 +91,7 @@ sinan/
 ├── apps/
 │   ├── api/          # FastAPI 路由
 │   ├── worker/       # 定时同步和提取
+│   ├── executor/     # 执行已批准或已授权的动作，唯一持有写令牌
 │   └── web/          # Next.js Dashboard
 ├── app/
 │   ├── providers/    # Gmail、Calendar、LLM 及假实现
