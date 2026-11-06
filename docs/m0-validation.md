@@ -19,9 +19,9 @@ The technical design lists seven questions that must be answered before M1. They
 | 1 | Can the USC account authorize a self-built OAuth app? | Done | Yes |
 | 2 | Does USC allow `gmail.modify`? | Done | Yes |
 | 3 | Does USC policy allow sending email content to a third-party LLM? | Done | Owner decision: use a third-party LLM, with mitigations |
-| 4 | Refresh token lifetime in Testing mode | From docs, needs check | 7 days |
+| 4 | Refresh token lifetime in Testing mode | Done (from docs) | 7 days; hands-on check moved to M1 |
 | 5 | Verification requirements for a single-user app | Done | Owner decision: stay in Testing mode |
-| 6 | `history.list` and custom Calendar event IDs | From docs, needs check | Usable, with fallbacks |
+| 6 | `history.list` and custom Calendar event IDs | Done (from docs) | Usable, with fallbacks; hands-on check moved to M1 |
 | 7 | LLM API retention, training and structured output | Done | Anthropic; model chosen by evaluation |
 
 Status values: Not started, In progress, From docs, From docs, needs check, Done.
@@ -131,9 +131,9 @@ The owner does all of this. No code in this repository is involved, and no token
 
 **Result:**
 
-- Date authorized:
-- Date the token stopped working:
-- Conclusion:
+- Date: 2026-11-05
+- Conclusion: Accepted from the docs by the owner. Refresh tokens are treated as expiring after 7 days, and M1 implements the re-authorization flow above.
+- Hands-on check: moved to M1. The test tokens from items 1 and 2 were already invalidated, so the 7-day expiry is confirmed during the first week of daily use instead.
 
 ## 5. Verification requirements for a single-user app
 
@@ -190,9 +190,9 @@ If step 3 returns 409, a deleted event can only be restored with `events.update`
 
 **Result:**
 
-- Date:
-- Step 3 outcome:
-- Conclusion:
+- Date: 2026-11-05
+- Conclusion: Accepted from the docs by the owner. M1 uses the `historyId` sync with the 404 fallback, and event IDs derived from proposal IDs.
+- Hands-on check: moved to M1. Steps 1 to 3 run against a test calendar when the real Calendar provider is written, and step 3 decides whether the Executor needs the `events.update` restore path.
 
 ## 7. LLM API retention, training and structured output
 
@@ -230,10 +230,16 @@ Secondary reports say that some newer models require 30-day retention even under
 
 ## Impact on M1
 
-Fill this in once all seven items are done.
+All seven items are done as of 2026-11-05. M0 is closed.
 
 - USC mailbox access: direct OAuth
 - USC mailbox actions: read and write
 - Email types sent to the LLM: prefiltered mail only, with the item 3 mitigations
 - LLM provider: Anthropic
 - Re-authorization reminder needed: yes, because the project stays in Testing mode (item 5)
+
+Checks carried into M1:
+
+- Confirm the 7-day refresh token expiry during the first week of daily use (item 4).
+- Run the Calendar event ID steps against a test calendar (item 6).
+- Confirm the retention terms of each candidate model before running the evaluation on it (item 7).
