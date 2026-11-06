@@ -22,7 +22,7 @@ The technical design lists seven questions that must be answered before M1. They
 | 4 | Refresh token lifetime in Testing mode | From docs, needs check | 7 days |
 | 5 | Verification requirements for a single-user app | From docs | Stay in Testing mode |
 | 6 | `history.list` and custom Calendar event IDs | From docs, needs check | Usable, with fallbacks |
-| 7 | LLM API retention, training and structured output | Partly from docs | Owner chooses provider |
+| 7 | LLM API retention, training and structured output | Done | Anthropic; model chosen by evaluation |
 
 Status values: Not started, In progress, From docs, From docs, needs check, Done.
 
@@ -209,7 +209,7 @@ If step 3 returns 409, a deleted event can only be restored with `events.update`
 
 | Provider | Default retention | Training on API data | Zero data retention | Structured output | Source and date |
 | --- | --- | --- | --- | --- | --- |
-| Anthropic | Deleted within 30 days | Check commercial terms | By agreement | Check current docs | [Privacy center](https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data), 2026-11-05 |
+| Anthropic | Deleted within 30 days | No, by default | By agreement | Yes, JSON Schema via `output_config.format` | [Retention](https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data), [training](https://privacy.claude.com/en/articles/7996868-is-my-data-used-for-model-training), [structured outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs), 2026-11-05 |
 | Provider B | | | | | |
 | Local model | None | None | Not applicable | Depends on runtime | |
 
@@ -217,9 +217,16 @@ Secondary reports say that some newer models require 30-day retention even under
 
 **Owner decision:**
 
-- Provider and model:
-- Date:
+- Provider: Anthropic (Claude API).
+- Model: chosen in M1/M2 by running the evaluation set on candidate models, starting with Claude Haiku 5.5 and Claude Sonnet 5.5. Check each candidate's retention terms before use.
+- Date: 2026-11-05
 - Reason:
+  - API data is not used for training by default.
+  - Inputs and outputs are deleted within 30 days.
+  - JSON Schema structured outputs fit the "LLM returns validated JSON only" rule.
+- Notes:
+  - Thumbs up/down feedback can enter training. Sinan never sends feedback through the API.
+  - The API key is configured only by the owner, in the real `.env`.
 
 ## Impact on M1
 
@@ -228,5 +235,5 @@ Fill this in once all seven items are done.
 - USC mailbox access: direct OAuth
 - USC mailbox actions: read and write
 - Email types sent to the LLM: prefiltered mail only, with the item 3 mitigations
-- LLM provider:
+- LLM provider: Anthropic
 - Re-authorization reminder needed: yes / no
