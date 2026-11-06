@@ -16,9 +16,9 @@ The technical design lists seven questions that must be answered before M1. They
 
 | # | Question | Status | Conclusion |
 | --- | --- | --- | --- |
-| 1 | Can the USC account authorize a self-built OAuth app? | Not started | |
-| 2 | Does USC allow `gmail.modify`? | Not started | |
-| 3 | Does USC policy allow sending email content to a third-party LLM? | Not started | |
+| 1 | Can the USC account authorize a self-built OAuth app? | Done | Yes |
+| 2 | Does USC allow `gmail.modify`? | Done | Yes |
+| 3 | Does USC policy allow sending email content to a third-party LLM? | Done | Owner decision: use a third-party LLM, with mitigations |
 | 4 | Refresh token lifetime in Testing mode | From docs, needs check | 7 days |
 | 5 | Verification requirements for a single-user app | From docs | Stay in Testing mode |
 | 6 | `history.list` and custom Calendar event IDs | From docs, needs check | Usable, with fallbacks |
@@ -59,10 +59,11 @@ The owner does all of this. No code in this repository is involved, and no token
 
 **Result:**
 
-- Date:
-- Outcome:
-- Evidence (error code or HTTP status only):
-- Conclusion:
+- Date: 2026-11-05
+- Outcome: Pass. Sign-in went through USC single sign-on with Duo. The consent screen showed the "unverified app" warning, which could be bypassed.
+- Evidence: `GET /gmail/v1/users/me/profile` returned HTTP 200.
+- Conclusion: M1 connects to the USC mailbox directly with OAuth. Auto-forwarding is not needed.
+- Cleanup: Access was removed from the USC account, and the Playground OAuth client was deleted, which invalidates every token it issued.
 
 ## 2. Does USC allow `gmail.modify`?
 
@@ -78,10 +79,10 @@ The owner does all of this. No code in this repository is involved, and no token
 
 **Result:**
 
-- Date:
-- Outcome:
-- Evidence:
-- Conclusion:
+- Date: 2026-11-05
+- Outcome: Pass. The consent screen for `gmail.modify` appeared and was not blocked.
+- Evidence: Consent result only. No modify endpoint was called.
+- Conclusion: Mailbox actions (mark as read, archive, Sinan labels) are available on the USC mailbox as well as `<personal-gmail>`.
 
 ## 3. Does USC policy allow sending email content to a third-party LLM?
 
@@ -98,10 +99,22 @@ The owner does all of this. No code in this repository is involved, and no token
 
 **Result:**
 
-- Date:
-- Policies found (title and link):
-- Conclusion:
-- Allowed email types, if limited:
+- Date: 2026-11-05
+- Policies found:
+  - [Generative AI General Policy](https://policy.usc.edu/generative-ai-general-policy/), issued 2026-01-09, revised 2026-09-01. It applies to students. With AI tools that USC has not procured, Public data is pre-authorized, Internal Use Only and Confidential data need case-by-case approval, and Confidential-Controlled data is prohibited. Section 5.4.3 requires the system owner's approval to connect an AI tool to a University system. The policy does not address students processing their own mail, and does not mention APIs.
+  - [Data Classification Standard ST06](https://policy.usc.edu/wp-content/uploads/2024/02/FINAL_ST06_USC_Data-Classification-Standard.pdf) and the [Data Protection Policy](https://policy.usc.edu/data-protection/). USC examples classify internal emails as Internal Use Only.
+  - [Email policy](https://policy.usc.edu/?p=4460) bans auto-forwarding to non-USC accounts. The [ITS FAQ](https://itservices.usc.edu/?p=24167) says it covers employee email only. Not needed, because item 1 passed.
+- Options considered:
+  - A. Ask USC ITS for case-by-case approval.
+  - B. Rules-only extraction for USC mail.
+  - C. A USC enterprise AI tool.
+  - D. Send prefiltered mail to a third-party LLM.
+- Conclusion: The owner chose option D. The policy does not cover a student processing their own mail, and the owner judges the risk acceptable. This is a conservative reading of the policy, not legal advice. Asking ITS later stays possible and would not block development.
+- Required mitigations for M1:
+  - Send only prefiltered mail. Prefer course notices and deadlines. Exclude mail that likely contains grades or other students' personal information.
+  - Strip quoted history and unneeded headers before sending.
+  - Choose a provider with short retention and no training on API data (item 7).
+  - Never put USC mail content in the repository, logs or reports.
 
 ## 4. Refresh token lifetime in Testing mode
 
@@ -212,8 +225,8 @@ Secondary reports say that some newer models require 30-day retention even under
 
 Fill this in once all seven items are done.
 
-- USC mailbox access: direct OAuth / auto-forward / not included
-- USC mailbox actions: read and write / read-only
-- Email types sent to the LLM:
+- USC mailbox access: direct OAuth
+- USC mailbox actions: read and write
+- Email types sent to the LLM: prefiltered mail only, with the item 3 mitigations
 - LLM provider:
 - Re-authorization reminder needed: yes / no
