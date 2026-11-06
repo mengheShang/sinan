@@ -13,6 +13,8 @@ x-backend: &backend
   environment:
     SINAN_MODE: ${SINAN_MODE:-demo}
     DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-sinan}:${POSTGRES_PASSWORD:-sinan}@db:5432/${POSTGRES_DB:-sinan}
+    # Empty in demo mode; live mode refuses to start without a valid key
+    SINAN_ENCRYPTION_KEY: ${SINAN_ENCRYPTION_KEY:-}
   depends_on:
     db:
       condition: service_healthy

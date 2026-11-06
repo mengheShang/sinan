@@ -12,6 +12,7 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "alembic>=1.14",
     "apscheduler>=3.10,<4",
+    "cryptography>=44",
 ]
 
 [dependency-groups]
@@ -42,7 +43,8 @@ extend-exclude = ["apps/web"]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "S"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]
+# Tests use asserts and obviously fake token strings
+"tests/**" = ["S101", "S105", "S106"]
 # Alembic leaves trailing whitespace in the header when there is no previous revision
 "migrations/versions/**" = ["W291"]
 

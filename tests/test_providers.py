@@ -3,8 +3,10 @@ import json
 from datetime import UTC, datetime
 
 import pytest
+from pydantic import SecretStr
 
 from app.config import Settings
+from app.crypto import generate_key
 from app.providers import factory
 from app.providers.demo_data import DEMO_MESSAGES, DEMO_RESPONSES
 from app.providers.fakes import FakeExtractor, FakeMailReader
@@ -129,7 +131,8 @@ def test_factory_uses_fakes_in_demo_mode() -> None:
 
 
 def test_factory_live_mode_is_not_wired_yet() -> None:
-    settings = Settings(sinan_mode="live")
+    key = SecretStr(generate_key())
+    settings = Settings(sinan_mode="live", sinan_encryption_key=key)
     with pytest.raises(NotImplementedError):
         factory.mail_reader(settings)
     with pytest.raises(NotImplementedError):
