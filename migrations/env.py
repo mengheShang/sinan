@@ -18,6 +18,10 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
+    """Use a URL passed in by the caller (tests), otherwise app settings."""
+    url = config.get_main_option("sqlalchemy.url")
+    if url:
+        return url
     settings = get_settings()
     return settings.database_url
 
