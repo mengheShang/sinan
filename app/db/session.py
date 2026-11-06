@@ -1,4 +1,4 @@
-"""数据库引擎和连通性检查。"""
+"""Database engine and connectivity check."""
 
 from functools import lru_cache
 
@@ -14,7 +14,7 @@ def get_engine() -> Engine:
 
 
 def check_db(engine: Engine) -> bool:
-    """执行 SELECT 1，连接正常时返回 True。"""
+    """Run SELECT 1 and return True if the connection works."""
     with engine.connect() as conn:
         result = conn.execute(text("SELECT 1"))
         value = result.scalar_one()

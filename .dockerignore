@@ -1,4 +1,4 @@
-# 构建上下文中绝不包含密钥和本地环境
+# Never send secrets or local environments to the build context
 .env
 .env.*
 !.env.example
@@ -15,5 +15,5 @@ data/
 .mypy_cache
 .ruff_cache
 
-# 前端有自己的构建上下文
+# The frontend has its own build context
 apps/web

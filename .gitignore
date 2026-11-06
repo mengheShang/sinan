@@ -1,4 +1,4 @@
-# ---- 密钥和真实数据：绝不进 Git ----
+# ---- Secrets and real data: never commit ----
 .env
 .env.*
 !.env.example
@@ -9,13 +9,13 @@ client_secret*.json
 credentials*.json
 token*.json
 
-# 数据库备份
+# Database backups
 backups/
 *.dump
 *.sql.gz
 *.backup
 
-# 真实评估数据应放在仓库外；以下目录作为第二道防线
+# Real evaluation data lives outside the repo; these entries are a second line of defense
 evals/real/
 evals/private/
 data/
@@ -48,7 +48,7 @@ test-results/
 playwright-report/
 playwright/.cache/
 
-# ---- 编辑器和系统 ----
+# ---- Editors and OS ----
 .vscode/*
 !.vscode/extensions.json
 .idea/
@@ -56,5 +56,5 @@ playwright/.cache/
 Thumbs.db
 desktop.ini
 
-# Claude Code 本地设置
+# Claude Code local settings
 .claude/settings.local.json

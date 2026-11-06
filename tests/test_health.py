@@ -22,6 +22,6 @@ def test_health_ok() -> None:
 def test_check_db() -> None:
     url = os.environ.get("TEST_DATABASE_URL")
     if not url:
-        pytest.skip("TEST_DATABASE_URL 未设置")
+        pytest.skip("TEST_DATABASE_URL is not set")
     engine = create_engine(url)
     assert check_db(engine)

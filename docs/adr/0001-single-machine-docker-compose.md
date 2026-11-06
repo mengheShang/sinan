@@ -1,45 +1,45 @@
-# ADR 0001：第一阶段使用单机 Docker Compose 部署
+# ADR 0001: Single-machine Docker Compose for phase one
 
-- 状态：已接受
-- 日期：2026-11-05
-- 决策人：Menghe
+- Status: Accepted
+- Date: 2026-11-05
+- Decider: Menghe
 
-## 背景
+## Context
 
-v1.0 方案采用云端服务加本地 Agent 的混合架构。它需要处理跨设备通信、云端令牌存储和公网暴露面，部署和安全负担都很重，会拖慢第一阶段主链路（邮件进入 → 生成待办或动作 → 批准或授权后执行）的完成。
+The v1.0 design used a cloud service plus a local agent. That hybrid setup required cross-device communication, cloud token storage and a public attack surface. The deployment and security burden would have slowed down the phase-one main path: email arrives, a to-do or action is produced, and it runs after approval or a grant.
 
-第一阶段只有一位用户，处理两个 Google 邮箱，数据量很小。
+Phase one has a single user with two Google mailboxes and very little data.
 
-## 决策
+## Decision
 
-第一阶段采用运行在一台电脑上的模块化单体，用 Docker Compose 启动五个容器：
+Phase one is a modular monolith on one machine. Docker Compose starts five containers:
 
-| 容器 | 职责 | 外部权限 |
+| Container | Responsibility | External access |
 | --- | --- | --- |
-| Web | Next.js Dashboard | 无 |
-| API | FastAPI 路由 | 无 |
-| Worker | 定时同步、预筛、提取、每日摘要 | 只读令牌 |
-| Executor | 执行已批准或已授权的动作 | 写令牌，唯一能写外部服务的模块 |
-| PostgreSQL | 数据存储 | 无 |
+| Web | Next.js dashboard | None |
+| API | FastAPI routes | None |
+| Worker | Scheduled sync, prefilter, extraction, daily digest | Read-only token |
+| Executor | Executes approved or granted actions | Write token; the only module that writes to external services |
+| PostgreSQL | Data storage | None |
 
-- 所有端口只绑定 `127.0.0.1`。
-- 定时任务用 APScheduler，不引入消息队列。
-- 暂不使用 LangGraph 和向量数据库。
+- All ports bind only to `127.0.0.1`.
+- Scheduling uses APScheduler; no message queue.
+- No LangGraph and no vector database for now.
 
-## 后果
+## Consequences
 
-好处：
+Benefits:
 
-- 一条命令即可启动，新用户可以直接运行演示模式。
-- 没有公网入口，攻击面小。
-- 读写分离通过拆分容器实现，Executor 的边界清晰，便于审查。
+- One command starts everything, so new users can run the demo directly.
+- No public entry point, so the attack surface is small.
+- Read/write separation comes from separate containers. The Executor boundary is clear and easy to review.
 
-代价：
+Costs:
 
-- 电脑关机时不同步邮件，下次启动后再补同步。
-- 不支持多设备访问。
-- 读写令牌的隔离是代码层的限制，不是 Google 层的硬隔离，写令牌仍属于高敏感凭证。
+- Mail does not sync while the computer is off; it catches up on the next start.
+- No multi-device access.
+- Separating the read and write tokens is a code-level restriction, not a hard boundary enforced by Google. The write token is still a highly sensitive credential.
 
-## 重新评估的条件
+## When to revisit
 
-出现以下任一情况时重新评估：需要多设备访问、需要 7×24 小时同步，或单机性能不够用。
+Revisit if any of these happen: multi-device access is needed, 24/7 sync is needed, or one machine is no longer fast enough.
