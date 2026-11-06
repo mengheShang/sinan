@@ -5,6 +5,10 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import get_settings
 from app.db.session import check_db, get_engine
+from app.logredact import install_redaction
+
+# Uvicorn sets up its log handlers before importing this module
+install_redaction()
 
 app = FastAPI(title="Sinan API", version="0.1.0")
 

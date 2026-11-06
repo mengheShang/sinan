@@ -1,0 +1,82 @@
+import io
+import logging
+from collections.abc import Iterator
+
+import pytest
+
+from app.logredact import MASK, RedactingFilter, install_redaction, redact
+
+# Fake values shaped like real credentials; none of them are real
+ACCESS = "ya29.FakeAccessTokenForTestsOnly"
+REFRESH = "1//0FakeRefreshTokenForTestsOnly"
+
+
+@pytest.mark.parametrize(
+    ("text", "secret"),
+    [
+        (f"token {ACCESS} expired", ACCESS),
+        (f"stored {REFRESH}", REFRESH),
+        ("Authorization: Bearer abc.def-ghi", "abc.def-ghi"),
+        ('{"refresh_token": "plain-fake-value"}', "plain-fake-value"),
+        ("client_secret=fake-secret-value&x=1", "fake-secret-value"),
+        ("GET /oauth/callback?state=s&code=4/fake-code HTTP/1.1", "4/fake-code"),
+    ],
+)
+def test_redact_hides_secret(text: str, secret: str) -> None:
+    out = redact(text)
+    assert secret not in out
+    assert MASK in out
+
+
+def test_redact_keeps_ordinary_text() -> None:
+    text = "sync done: 3 messages, status code: 404, history 12345"
+    assert redact(text) == text
+
+
+@pytest.fixture
+def stream_logger() -> Iterator[tuple[logging.Logger, io.StringIO]]:
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.addFilter(RedactingFilter())
+    logger = logging.getLogger("sinan.test.redact")
+    logger.addHandler(handler)
+    logger.propagate = False
+    logger.setLevel(logging.INFO)
+    yield logger, stream
+    logger.removeHandler(handler)
+
+
+def test_filter_redacts_format_arguments(
+    stream_logger: tuple[logging.Logger, io.StringIO],
+) -> None:
+    logger, stream = stream_logger
+    logger.info("refreshed with %s", REFRESH)
+    output = stream.getvalue()
+    assert REFRESH not in output
+    assert "refreshed with" in output
+
+
+def test_filter_redacts_tracebacks(
+    stream_logger: tuple[logging.Logger, io.StringIO],
+) -> None:
+    logger, stream = stream_logger
+    try:
+        raise RuntimeError(f"bad token {ACCESS}")
+    except RuntimeError:
+        logger.exception("refresh failed")
+    output = stream.getvalue()
+    assert ACCESS not in output
+    assert "RuntimeError" in output
+
+
+def test_install_adds_filter_once() -> None:
+    root = logging.getLogger()
+    handler = logging.StreamHandler(io.StringIO())
+    root.addHandler(handler)
+    try:
+        install_redaction()
+        install_redaction()
+        filters = [f for f in handler.filters if isinstance(f, RedactingFilter)]
+        assert len(filters) == 1
+    finally:
+        root.removeHandler(handler)

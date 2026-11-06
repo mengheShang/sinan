@@ -8,6 +8,8 @@ import logging
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 
+from app.logredact import install_redaction
+
 log = logging.getLogger("sinan.executor")
 
 
@@ -17,6 +19,7 @@ def heartbeat() -> None:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    install_redaction()
     scheduler = BlockingScheduler(timezone="UTC")
     scheduler.add_job(heartbeat, "interval", seconds=60, id="heartbeat")
     log.info("executor started")
