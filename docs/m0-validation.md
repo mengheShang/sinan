@@ -165,7 +165,7 @@ To publish an app with restricted scopes to production, Google requires app veri
 **Impact on design:**
 
 - Store the last `historyId` for each account.
-- On 404, fall back to a time-window sync, for example `messages.list` with `q=newer_than:14d`, then store a fresh `historyId`.
+- On 404, fall back to a time-window sync with `messages.list`, starting from the last successful sync and capped at 30 days (ADR 0002), then store a fresh `historyId`.
 - Matching on Gmail message ID keeps a re-sync idempotent.
 
 ### Calendar event IDs
