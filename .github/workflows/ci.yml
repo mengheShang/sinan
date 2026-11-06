@@ -93,7 +93,9 @@ jobs:
         run: |
           curl -fsS http://127.0.0.1:8000/health
           curl -fsS http://127.0.0.1:8000/health/db
-          curl -fsS http://127.0.0.1:3000 | grep -q "Sinan"
+          # Signed out: the API refuses, and the Dashboard sends you to the login page
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/auth/session)" = 401
+          curl -fsSL http://127.0.0.1:3000 | grep -q "Sign in"
       - name: Dump logs
         if: failure()
         run: docker compose logs
