@@ -20,7 +20,7 @@ The technical design lists seven questions that must be answered before M1. They
 | 2 | Does USC allow `gmail.modify`? | Done | Yes |
 | 3 | Does USC policy allow sending email content to a third-party LLM? | Done | Owner decision: use a third-party LLM, with mitigations |
 | 4 | Refresh token lifetime in Testing mode | From docs, needs check | 7 days |
-| 5 | Verification requirements for a single-user app | From docs | Stay in Testing mode |
+| 5 | Verification requirements for a single-user app | Done | Owner decision: stay in Testing mode |
 | 6 | `history.list` and custom Calendar event IDs | From docs, needs check | Usable, with fallbacks |
 | 7 | LLM API retention, training and structured output | Done | Anthropic; model chosen by evaluation |
 
@@ -154,7 +154,7 @@ To publish an app with restricted scopes to production, Google requires app veri
 
 **Preliminary conclusion:** Keep the project in Testing mode with the owner's two addresses as the only test users. Do not apply for verification. Any public demo must run in demo mode with fake providers, and must never ask visitors to connect a real mailbox.
 
-**Owner decision:** Accept a weekly re-authorization in exchange for no verification. Yes / No:
+**Owner decision:** Accept a weekly re-authorization in exchange for no verification. Yes / No: Yes (2026-11-05).
 
 ## 6. `history.list` and custom Calendar event IDs
 
@@ -236,4 +236,4 @@ Fill this in once all seven items are done.
 - USC mailbox actions: read and write
 - Email types sent to the LLM: prefiltered mail only, with the item 3 mitigations
 - LLM provider: Anthropic
-- Re-authorization reminder needed: yes / no
+- Re-authorization reminder needed: yes, because the project stays in Testing mode (item 5)
