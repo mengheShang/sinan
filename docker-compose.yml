@@ -41,6 +41,14 @@ services:
     <<: *backend
     # Run database migrations before starting
     command: sh -c "alembic upgrade head && uvicorn apps.api.main:app --host 0.0.0.0 --port 8000"
+    environment:
+      SINAN_MODE: ${SINAN_MODE:-demo}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-sinan}:${POSTGRES_PASSWORD:-sinan}@db:5432/${POSTGRES_DB:-sinan}
+      SINAN_ENCRYPTION_KEY: ${SINAN_ENCRYPTION_KEY:-}
+      # Dashboard login. Only the API gets these; empty means the demo login in demo mode
+      SINAN_DASHBOARD_USERNAME: ${SINAN_DASHBOARD_USERNAME:-}
+      SINAN_DASHBOARD_PASSWORD_HASH: ${SINAN_DASHBOARD_PASSWORD_HASH:-}
+      SINAN_SESSION_SECRET: ${SINAN_SESSION_SECRET:-}
     ports:
       - "127.0.0.1:8000:8000"
     healthcheck:

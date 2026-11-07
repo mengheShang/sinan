@@ -1,9 +1,9 @@
 """Runtime settings. Read from environment variables only, never from a .env file."""
 
 from functools import lru_cache
-from typing import Literal, Self
+from typing import Any, Literal, Self
 
-from pydantic import SecretStr, model_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.crypto import decode_key
@@ -16,6 +16,25 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://sinan:sinan@127.0.0.1:5432/sinan"
     # Key for OAuth tokens at rest. Required in live mode, unused in demo mode.
     sinan_encryption_key: SecretStr | None = None
+    # Dashboard login, read by the API only (see apps/api/auth.py).
+    # All three are required in live mode; demo mode falls back to demo values.
+    sinan_dashboard_username: str | None = None
+    sinan_dashboard_password_hash: SecretStr | None = None
+    sinan_session_secret: SecretStr | None = None
+
+    @field_validator(
+        "sinan_encryption_key",
+        "sinan_dashboard_username",
+        "sinan_dashboard_password_hash",
+        "sinan_session_secret",
+        mode="before",
+    )
+    @classmethod
+    def empty_is_unset(cls, value: Any) -> Any:
+        """Compose passes unset variables as empty strings; treat them as missing."""
+        if value == "":
+            return None
+        return value
 
     @model_validator(mode="after")
     def check_live_key(self) -> Self:
