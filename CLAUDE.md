@@ -40,7 +40,7 @@ PRs touching any of the following must call it out in the description and wait f
 
 ## Workflow
 
-1. Every task maps to an Issue with a clear goal and acceptance criteria.
+1. Every task maps to an Issue with a clear goal and acceptance criteria. Exception: a small fix found along the way (a bug in existing code, a CI tweak, a typo) can go straight to a PR, with the problem and acceptance criteria in its description. Features, milestone tasks, migrations and anything that needs a design decision still need an Issue. The review rules above apply either way.
 2. Every PR does one thing and includes tests.
 3. `main` stays green. No direct commits (except the M0 bootstrap).
 4. Record key trade-offs in `docs/adr/` with increasing numbers.
