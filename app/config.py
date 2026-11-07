@@ -17,12 +17,14 @@ class Settings(BaseSettings):
     # Key for OAuth tokens at rest. Required in live mode, unused in demo mode.
     sinan_encryption_key: SecretStr | None = None
     # Dashboard login, read by the API only (see apps/api/auth.py).
-    # Both are required in live mode; demo mode falls back to a demo password.
+    # All three are required in live mode; demo mode falls back to demo values.
+    sinan_dashboard_username: str | None = None
     sinan_dashboard_password_hash: SecretStr | None = None
     sinan_session_secret: SecretStr | None = None
 
     @field_validator(
         "sinan_encryption_key",
+        "sinan_dashboard_username",
         "sinan_dashboard_password_hash",
         "sinan_session_secret",
         mode="before",

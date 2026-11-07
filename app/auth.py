@@ -5,8 +5,8 @@ has no `$` characters, so it can sit unquoted in a Compose .env file without
 being read as a variable.
 
 Sessions are stateless signed tokens: `v1.<expires>.<nonce>.<signature>`.
-The signing key is derived from the session secret and the password hash, so
-changing either one ends every existing session.
+The signing key is derived from the session secret, the username and the
+password hash, so changing any of them ends every existing session.
 """
 
 import base64
@@ -33,12 +33,22 @@ TOKEN_VERSION = "v1"  # noqa: S105 - a format tag, not a secret
 SESSION_TTL = 12 * 60 * 60
 SECRET_SIZE = 32
 MIN_SECRET_LENGTH = 32
+MAX_USERNAME_LENGTH = 64
 
 Clock = Callable[[], float]
 
 
 class InvalidHashError(ValueError):
     """The configured password hash is malformed."""
+
+
+def check_username(username: str) -> str:
+    """Reject usernames that are empty, too long or contain whitespace."""
+    if not username or len(username) > MAX_USERNAME_LENGTH:
+        raise ValueError("SINAN_DASHBOARD_USERNAME must be 1 to 64 characters")
+    if any(ch.isspace() for ch in username):
+        raise ValueError("SINAN_DASHBOARD_USERNAME must not contain whitespace")
+    return username
 
 
 def b64encode(raw: bytes) -> str:
@@ -92,8 +102,16 @@ def generate_secret() -> str:
 class SessionSigner:
     """Issues and checks signed session tokens."""
 
-    def __init__(self, secret: str, password_hash: str, ttl: int = SESSION_TTL) -> None:
-        label = b"sinan-session:" + password_hash.encode("utf-8")
+    def __init__(
+        self,
+        secret: str,
+        username: str,
+        password_hash: str,
+        ttl: int = SESSION_TTL,
+    ) -> None:
+        # Usernames have no whitespace, so the newline keeps the two fields apart
+        identity = f"sinan-session:{username}\n{password_hash}"
+        label = identity.encode("utf-8")
         self._key = hmac.digest(secret.encode("utf-8"), label, "sha256")
         self.ttl = ttl
 
@@ -164,15 +182,26 @@ class Auth:
 
     def __init__(
         self,
+        username: str,
         password_hash: str,
         signer: SessionSigner,
         limiter: LoginLimiter,
         clock: Clock = time.time,
     ) -> None:
+        self.username = username
         self.password_hash = password_hash
         self.signer = signer
         self.limiter = limiter
         self.clock = clock
+
+    def check_login(self, username: str, password: str) -> bool:
+        """True only when both match. Always runs the password hash, so a wrong
+        username takes as long as a wrong password and reveals nothing."""
+        given = username.encode("utf-8")
+        expected = self.username.encode("utf-8")
+        name_ok = hmac.compare_digest(given, expected)
+        password_ok = verify_password(password, self.password_hash)
+        return name_ok and password_ok
 
 
 def prompt_hash() -> str:

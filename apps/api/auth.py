@@ -14,14 +14,15 @@ from app.auth import (
     Auth,
     LoginLimiter,
     SessionSigner,
+    check_username,
     hash_password,
     parse_hash,
-    verify_password,
 )
 from app.config import Settings, get_settings
 
 COOKIE = "sinan_session"
-# Documented in .env.example and the README. Only used in demo mode.
+# Documented in .env.example. Only used in demo mode.
+DEMO_USERNAME = "demo"
 DEMO_PASSWORD = "sinan-demo"  # noqa: S105 - public by design, demo mode only
 
 # Endpoints reachable without a session, marked with @public.
@@ -33,14 +34,18 @@ login_lock = threading.Lock()
 
 
 def build_auth(settings: Settings) -> Auth:
-    """Build login state from settings. Refuses a live setup without both values."""
+    """Build login state from settings. Refuses a live setup missing any value."""
+    name_value = settings.sinan_dashboard_username
     hash_value = settings.sinan_dashboard_password_hash
     secret_value = settings.sinan_session_secret
     live = settings.sinan_mode == "live"
+    if live and name_value is None:
+        raise ValueError("SINAN_DASHBOARD_USERNAME is required in live mode")
     if live and hash_value is None:
         raise ValueError("SINAN_DASHBOARD_PASSWORD_HASH is required in live mode")
     if live and secret_value is None:
         raise ValueError("SINAN_SESSION_SECRET is required in live mode")
+    username = check_username(DEMO_USERNAME if name_value is None else name_value)
     if hash_value is None:
         password_hash = hash_password(DEMO_PASSWORD)
     else:
@@ -51,8 +56,8 @@ def build_auth(settings: Settings) -> Auth:
     secret = random_secret if secret_value is None else secret_value.get_secret_value()
     if len(secret) < MIN_SECRET_LENGTH:
         raise ValueError("SINAN_SESSION_SECRET must be at least 32 characters")
-    signer = SessionSigner(secret, password_hash)
-    return Auth(password_hash, signer, LoginLimiter())
+    signer = SessionSigner(secret, username, password_hash)
+    return Auth(username, password_hash, signer, LoginLimiter())
 
 
 @lru_cache
@@ -81,6 +86,7 @@ def public[F: Callable[..., Any]](endpoint: F) -> F:
 
 
 class LoginBody(BaseModel):
+    username: str = Field(max_length=256)
     password: str = Field(max_length=1024)
 
 
@@ -96,7 +102,7 @@ def login(body: LoginBody, response: Response, auth: AuthDep) -> dict[str, str]:
         if wait:
             headers = {"Retry-After": str(wait)}
             raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many attempts", headers)
-        if not verify_password(body.password, auth.password_hash):
+        if not auth.check_login(body.username, body.password):
             auth.limiter.fail(now)
             # Same answer for every failure; no hint about why
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Login failed")
