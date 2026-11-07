@@ -5,8 +5,11 @@ first place. The filter rewrites each record's final message, so values passed
 as format arguments are caught too.
 """
 
+import copy
 import logging
 import re
+from collections.abc import Mapping
+from typing import Any
 
 MASK = "[REDACTED]"
 
@@ -39,16 +42,52 @@ def redact(text: str) -> str:
     return out
 
 
+def redact_args(args: Any) -> Any:
+    """Redact each string argument, keeping the tuple or mapping shape."""
+    if isinstance(args, tuple):
+        return tuple(redact(a) if isinstance(a, str) else a for a in args)
+    if isinstance(args, Mapping):
+        return {k: redact(v) if isinstance(v, str) else v for k, v in args.items()}
+    return args
+
+
 class RedactingFilter(logging.Filter):
+    """Redacts the final message while keeping the record's arguments.
+
+    Some formatters read record.args directly (uvicorn's access log unpacks
+    them), so arguments are redacted in place when that fully cleans the
+    message. When a secret is split between the template and an argument,
+    such as "refresh_token=%s", the record falls back to one flat message.
+    """
+
     def filter(self, record: logging.LogRecord) -> bool:
         message = record.getMessage()
-        record.msg = redact(message)
-        record.args = None
+        safe = redact(message)
+        if safe != message:
+            self._clean(record, safe)
         if record.exc_info and not record.exc_text:
             # Tracebacks can carry tokens in exception messages
             trace = logging.Formatter().formatException(record.exc_info)
             record.exc_text = redact(trace)
         return True
+
+    @staticmethod
+    def _clean(record: logging.LogRecord, safe: str) -> None:
+        trial = copy.copy(record)
+        if isinstance(trial.msg, str):
+            trial.msg = redact(trial.msg)
+        trial.args = redact_args(trial.args)
+        try:
+            cleaned = trial.getMessage()
+        except (TypeError, ValueError, KeyError):
+            # Redacting the template can remove a placeholder ("token=%s")
+            cleaned = None
+        if cleaned == safe:
+            record.msg = trial.msg
+            record.args = trial.args
+            return
+        record.msg = safe
+        record.args = None
 
 
 def install_redaction() -> None:
