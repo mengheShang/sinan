@@ -13,12 +13,12 @@ dependencies = [
     "alembic>=1.14",
     "apscheduler>=3.10,<4",
     "cryptography>=44",
+    "httpx>=0.28",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8.3",
-    "httpx>=0.28",
     "ruff>=0.8",
     "mypy>=1.13",
 ]

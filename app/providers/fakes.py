@@ -2,6 +2,9 @@
 
 from dataclasses import replace
 from datetime import datetime
+from urllib.parse import urlencode
+
+from pydantic import SecretStr
 
 from app.providers.mail import (
     HistoryChanges,
@@ -9,6 +12,13 @@ from app.providers.mail import (
     MailMessage,
     MailProfile,
     MessageNotFoundError,
+)
+from app.providers.oauth import (
+    READ_SCOPE,
+    OAuthError,
+    ReauthRequiredError,
+    TokenGrant,
+    pkce_challenge,
 )
 
 EMPTY_RESULT = '{"items": []}'
@@ -74,3 +84,49 @@ class FakeExtractor:
             if marker in text:
                 return result
         return EMPTY_RESULT
+
+
+class FakeOAuth:
+    """A stand-in for Google's consent screen and token endpoint.
+
+    `authorize_url` points straight back at the callback with a code, so the
+    demo can run the whole connect flow without a Google account. The fake
+    checks PKCE like the real endpoint: the verifier must match the challenge.
+    """
+
+    def __init__(
+        self,
+        email: str,
+        redirect_uri: str,
+        scopes: frozenset[str] = frozenset({READ_SCOPE}),
+    ) -> None:
+        self.email = email
+        self.redirect_uri = redirect_uri
+        self.scopes = scopes
+        self._challenges: dict[str, str] = {}
+        self._issued = 0
+        self.revoked: set[str] = set()
+
+    def authorize_url(self, state: str, challenge: str) -> str:
+        code = f"fake-code-{len(self._challenges)}"
+        self._challenges[code] = challenge
+        query = urlencode({"state": state, "code": code})
+        return f"{self.redirect_uri}?{query}"
+
+    def exchange(self, code: str, verifier: str) -> TokenGrant:
+        challenge = self._challenges.pop(code, None)
+        if challenge is None or pkce_challenge(verifier) != challenge:
+            raise OAuthError("invalid_grant")
+        self._issued += 1
+        refresh = SecretStr(f"fake-refresh-{self._issued}")
+        access = SecretStr(f"fake-access-{self._issued}")
+        return TokenGrant(refresh, access, self.scopes)
+
+    def refresh(self, refresh_token: SecretStr) -> SecretStr:
+        value = refresh_token.get_secret_value()
+        if value in self.revoked or not value.startswith("fake-refresh-"):
+            raise ReauthRequiredError("invalid_grant")
+        return SecretStr("fake-access-refreshed")
+
+    def mailbox_email(self, access_token: SecretStr) -> str:
+        return self.email

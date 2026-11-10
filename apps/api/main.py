@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.config import get_settings
 from app.db.session import check_db, get_engine
 from app.logredact import install_redaction
-from apps.api import auth
+from apps.api import auth, oauth
 
 # Uvicorn sets up its log handlers before importing this module
 install_redaction()
@@ -20,6 +20,8 @@ def create_app() -> FastAPI:
     settings = get_settings()
     # Fail at startup, not at first login, when live mode lacks login settings
     auth.get_auth()
+    # Same for the OAuth client in live mode
+    oauth.get_connector()
     # Interactive docs only in demo mode
     demo = settings.sinan_mode == "demo"
     api = FastAPI(
@@ -31,6 +33,7 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json" if demo else None,
     )
     api.include_router(auth.router)
+    api.include_router(oauth.router)
     api.add_api_route("/health", health)
     api.add_api_route("/health/db", health_db)
     return api

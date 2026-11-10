@@ -49,6 +49,9 @@ services:
       SINAN_DASHBOARD_USERNAME: ${SINAN_DASHBOARD_USERNAME:-}
       SINAN_DASHBOARD_PASSWORD_HASH: ${SINAN_DASHBOARD_PASSWORD_HASH:-}
       SINAN_SESSION_SECRET: ${SINAN_SESSION_SECRET:-}
+      # Read-only Gmail OAuth client. Only the API gets these; demo mode uses a fake
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
     ports:
       - "127.0.0.1:8000:8000"
     healthcheck:
