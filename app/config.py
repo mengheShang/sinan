@@ -21,12 +21,22 @@ class Settings(BaseSettings):
     sinan_dashboard_username: str | None = None
     sinan_dashboard_password_hash: SecretStr | None = None
     sinan_session_secret: SecretStr | None = None
+    # Google OAuth client (Web application type), read by the API only.
+    # Required in live mode to connect an account; demo mode uses a fake.
+    google_client_id: str | None = None
+    google_client_secret: SecretStr | None = None
+    # Must match the redirect URI registered on the OAuth client exactly
+    sinan_oauth_redirect_uri: str = "http://127.0.0.1:8000/oauth/google/callback"
+    # Where the browser lands after the OAuth callback
+    sinan_dashboard_url: str = "http://127.0.0.1:3000"
 
     @field_validator(
         "sinan_encryption_key",
         "sinan_dashboard_username",
         "sinan_dashboard_password_hash",
         "sinan_session_secret",
+        "google_client_id",
+        "google_client_secret",
         mode="before",
     )
     @classmethod

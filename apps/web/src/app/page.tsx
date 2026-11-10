@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
@@ -57,6 +58,9 @@ export default function Home() {
       <Suspense fallback={<p>Checking session…</p>}>
         <SignedIn />
       </Suspense>
+      <p>
+        <Link href="/accounts">Accounts</Link>: connect Gmail and check token age.
+      </p>
       <p>Health checks for each service.</p>
       <Suspense fallback={<p>Checking…</p>}>
         <Status />

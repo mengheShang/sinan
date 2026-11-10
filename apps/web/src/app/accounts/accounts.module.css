@@ -1,0 +1,114 @@
+.main {
+  max-width: 720px;
+  margin: 48px auto;
+  padding: 0 16px;
+  font-family: system-ui, sans-serif;
+  display: grid;
+  gap: 16px;
+}
+
+.list {
+  list-style: none;
+  display: grid;
+  gap: 12px;
+}
+
+.card {
+  border: 1px solid #d4d4d4;
+  border-radius: 6px;
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.row,
+.inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 12px;
+  font-size: 14px;
+}
+
+.meta dt {
+  color: #737373;
+}
+
+.role {
+  font-size: 13px;
+  padding: 1px 6px;
+  border: 1px solid #a3a3a3;
+  border-radius: 4px;
+}
+
+.ok,
+.expiring,
+.expired,
+.needs_reauth {
+  font-size: 13px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: #fff;
+}
+
+.ok {
+  background: #15803d;
+}
+
+.expiring {
+  background: #b45309;
+}
+
+.expired,
+.needs_reauth {
+  background: #b91c1c;
+}
+
+.good,
+.bad {
+  padding: 8px 12px;
+  border-radius: 4px;
+}
+
+.good {
+  background: #dcfce7;
+  color: #14532d;
+}
+
+.bad {
+  background: #fee2e2;
+  color: #7f1d1d;
+}
+
+.main button,
+.main select {
+  padding: 4px 10px;
+  border: 1px solid #a3a3a3;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+@media (prefers-color-scheme: dark) {
+  .card {
+    border-color: #404040;
+  }
+
+  .good {
+    background: #14532d;
+    color: #dcfce7;
+  }
+
+  .bad {
+    background: #7f1d1d;
+    color: #fee2e2;
+  }
+}
