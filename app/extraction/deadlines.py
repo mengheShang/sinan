@@ -1,0 +1,303 @@
+"""Turn an explicit deadline phrase into a UTC time, or say why it needs review.
+
+Pure and deterministic: no network, no clock, no LLM. The rules (ADR 0005):
+
+- A time zone is required. Pacific, Mountain, Central, Eastern, UTC/GMT and
+  AoE are understood. Standard or daylight names (PST, PDT, ...) must match
+  the date: "PST" on a summer date is ambiguous.
+- A time is required. "noon" is 12:00; "midnight" is ambiguous.
+- The date is a month name and day ("Nov 14", "November 14th, 2026"), an ISO
+  date, a weekday ("Friday"), or today / tonight / tomorrow. Numeric dates
+  such as 11/14 always need review, because 11/12 has two readings.
+- A missing year is inferred from the email date: the one year that puts the
+  date between 30 days before and 335 days after the email.
+- A weekday alone means the first such day on or after the email date, in the
+  deadline's time zone. "next Friday" needs review.
+- A weekday next to a date must agree with it.
+- Wall times that do not exist, or happen twice, on a DST change need review,
+  unless a standard or daylight name settles it.
+"""
+
+import re
+from dataclasses import dataclass
+from datetime import UTC, date, datetime, time, timedelta, timezone, tzinfo
+from zoneinfo import ZoneInfo
+
+PAST_WINDOW = timedelta(days=30)
+FUTURE_WINDOW = timedelta(days=335)
+
+
+@dataclass(frozen=True)
+class Zone:
+    region: tzinfo
+    # Fixed UTC offset the name implies, or None for "PT" style names
+    offset: timedelta | None
+
+
+def region(name: str) -> ZoneInfo:
+    return ZoneInfo(name)
+
+
+def hours(n: int) -> timedelta:
+    return timedelta(hours=n)
+
+
+ZONES: dict[str, Zone] = {
+    "pt": Zone(region("America/Los_Angeles"), None),
+    "pacific": Zone(region("America/Los_Angeles"), None),
+    "pst": Zone(region("America/Los_Angeles"), hours(-8)),
+    "pdt": Zone(region("America/Los_Angeles"), hours(-7)),
+    "mt": Zone(region("America/Denver"), None),
+    "mountain": Zone(region("America/Denver"), None),
+    "mst": Zone(region("America/Denver"), hours(-7)),
+    "mdt": Zone(region("America/Denver"), hours(-6)),
+    "ct": Zone(region("America/Chicago"), None),
+    "central": Zone(region("America/Chicago"), None),
+    "cst": Zone(region("America/Chicago"), hours(-6)),
+    "cdt": Zone(region("America/Chicago"), hours(-5)),
+    "et": Zone(region("America/New_York"), None),
+    "eastern": Zone(region("America/New_York"), None),
+    "est": Zone(region("America/New_York"), hours(-5)),
+    "edt": Zone(region("America/New_York"), hours(-4)),
+    "utc": Zone(UTC, hours(0)),
+    "gmt": Zone(UTC, hours(0)),
+    # Anywhere on Earth: the deadline holds until the day ends everywhere
+    "aoe": Zone(timezone(hours(-12)), hours(-12)),
+}
+
+# Exact spellings only, so "marks 10" or "month" are not read as dates
+MONTHS = {
+    "jan": 1,
+    "january": 1,
+    "feb": 2,
+    "february": 2,
+    "mar": 3,
+    "march": 3,
+    "apr": 4,
+    "april": 4,
+    "may": 5,
+    "jun": 6,
+    "june": 6,
+    "jul": 7,
+    "july": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "october": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "december": 12,
+}
+WEEKDAYS = {
+    "mon": 0,
+    "monday": 0,
+    "tue": 1,
+    "tues": 1,
+    "tuesday": 1,
+    "wed": 2,
+    "wednesday": 2,
+    "thu": 3,
+    "thur": 3,
+    "thurs": 3,
+    "thursday": 3,
+    "fri": 4,
+    "friday": 4,
+    "sat": 5,
+    "saturday": 5,
+    "sun": 6,
+    "sunday": 6,
+}
+
+
+def words(names: dict[str, int] | dict[str, Zone]) -> str:
+    """A regex alternation, longest first so "september" wins over "sep"."""
+    ordered = sorted(names, key=len, reverse=True)
+    return "|".join(ordered)
+
+
+ZONE_RE = re.compile(r"\b(" + words(ZONES) + r")\b")
+MONTH_RE = re.compile(
+    r"\b(" + words(MONTHS) + r")\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b(?:\s+(\d{4})\b)?"
+)
+ISO_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
+NUMERIC_RE = re.compile(r"\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b")
+WEEKDAY_RE = re.compile(r"\b(?:(next|this)\s+)?(" + words(WEEKDAYS) + r")\.?(?=\s|$|\b)")
+RELATIVE_RE = re.compile(r"\b(today|tonight|tomorrow)\b")
+TIME_12_RE = re.compile(r"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b")
+TIME_24_RE = re.compile(r"\b(\d{1,2}):(\d{2})\b(?!\s*(?:am|pm))")
+
+
+@dataclass(frozen=True)
+class DueParse:
+    """Exactly one field is set: the UTC due time, or why a person must check it."""
+
+    due_at: datetime | None
+    reason: str | None
+
+
+def review(reason: str) -> DueParse:
+    return DueParse(None, reason)
+
+
+def normalize(text: str) -> str:
+    lowered = text.lower()
+    lowered = lowered.replace("a.m.", "am").replace("p.m.", "pm")
+    return lowered.replace(",", " ")
+
+
+def find_zone(text: str) -> Zone | str:
+    names = set(ZONE_RE.findall(text))
+    if not names:
+        return "no_zone"
+    zones = {ZONES[n] for n in names}
+    if len(zones) > 1:
+        return "multiple_zones"
+    return zones.pop()
+
+
+def find_time(text: str) -> time | str:
+    if "midnight" in text:
+        return "midnight"
+    found: list[time] = []
+    if re.search(r"\bnoon\b", text):
+        found.append(time(12, 0))
+    for hour_s, minute_s, half in TIME_12_RE.findall(text):
+        hour, minute = int(hour_s), int(minute_s or 0)
+        if not 1 <= hour <= 12 or minute > 59:
+            return "invalid_time"
+        hour = hour % 12 + (12 if half == "pm" else 0)
+        found.append(time(hour, minute))
+    for hour_s, minute_s in TIME_24_RE.findall(text):
+        hour, minute = int(hour_s), int(minute_s)
+        if hour > 23 or minute > 59:
+            return "invalid_time"
+        found.append(time(hour, minute))
+    if not found:
+        return "no_time"
+    if len(set(found)) > 1:
+        return "multiple_times"
+    return found[0]
+
+
+@dataclass(frozen=True)
+class DateParts:
+    month: int
+    day: int
+    year: int | None
+
+
+def find_date(text: str) -> DateParts | str | None:
+    """A written date, a reason it needs review, or None when there is none."""
+    if NUMERIC_RE.search(text):
+        return "numeric_date"
+    found: set[DateParts] = set()
+    for month_s, day_s, year_s in MONTH_RE.findall(text):
+        year = int(year_s) if year_s else None
+        found.add(DateParts(MONTHS[month_s], int(day_s), year))
+    for year_s, month_s, day_s in ISO_RE.findall(text):
+        found.add(DateParts(int(month_s), int(day_s), int(year_s)))
+    if len(found) > 1:
+        return "multiple_dates"
+    return found.pop() if found else None
+
+
+def build(parts: DateParts, year: int) -> date | None:
+    try:
+        return date(year, parts.month, parts.day)
+    except ValueError:
+        return None
+
+
+def resolve_year(parts: DateParts, sent: date) -> date | str:
+    if parts.year is not None:
+        exact = build(parts, parts.year)
+        return exact if exact is not None else "invalid_date"
+    earliest = sent - PAST_WINDOW
+    latest = sent + FUTURE_WINDOW
+    options = []
+    for year in (sent.year - 1, sent.year, sent.year + 1):
+        day = build(parts, year)
+        if day is not None and earliest <= day <= latest:
+            options.append(day)
+    if not options:
+        exists = any(build(parts, y) for y in (sent.year, sent.year + 1))
+        return "year_unclear" if exists else "invalid_date"
+    if len(options) > 1:
+        return "year_unclear"
+    return options[0]
+
+
+def find_day(text: str, sent: date) -> date | str:
+    weekdays = WEEKDAY_RE.findall(text)
+    relative = set(RELATIVE_RE.findall(text))
+    written = find_date(text)
+    if isinstance(written, str):
+        return written
+    if any(word == "next" for word, _ in weekdays):
+        return "relative_weekday"
+    named = {WEEKDAYS[w] for _, w in weekdays}
+    if len(named) > 1:
+        return "multiple_dates"
+    if written is not None:
+        if relative:
+            return "multiple_dates"
+        day = resolve_year(written, sent)
+        if isinstance(day, str):
+            return day
+        if named and day.weekday() not in named:
+            return "weekday_mismatch"
+        return day
+    if relative:
+        if len(relative) > 1 or named:
+            return "multiple_dates"
+        offset = 1 if "tomorrow" in relative else 0
+        return sent + timedelta(days=offset)
+    if named:
+        ahead = (named.pop() - sent.weekday()) % 7
+        return sent + timedelta(days=ahead)
+    return "no_date"
+
+
+def place(day: date, at: time, zone: Zone) -> datetime | str:
+    """Attach the zone to a wall time, refusing times DST makes ambiguous."""
+    naive = datetime.combine(day, at)
+    first = naive.replace(tzinfo=zone.region, fold=0)
+    second = naive.replace(tzinfo=zone.region, fold=1)
+    if zone.offset is not None:
+        # A named offset settles folds and gaps; it must still fit the date
+        valid = {first.utcoffset(), second.utcoffset()}
+        if zone.offset not in valid:
+            return "zone_dst_mismatch"
+        return naive.replace(tzinfo=timezone(zone.offset))
+    if first.utcoffset() != second.utcoffset():
+        round_trip = first.astimezone(UTC).astimezone(zone.region)
+        if round_trip.replace(tzinfo=None) != naive:
+            return "nonexistent_time"
+        return "ambiguous_time"
+    return first
+
+
+def parse_due(due_raw: str, sent_at: datetime) -> DueParse:
+    """Parse `due_raw` against the email's send time (timezone-aware)."""
+    if sent_at.tzinfo is None:
+        raise ValueError("sent_at must be timezone-aware")
+    text = normalize(due_raw)
+    zone = find_zone(text)
+    if isinstance(zone, str):
+        return review(zone)
+    at = find_time(text)
+    if isinstance(at, str):
+        return review(at)
+    # Relative days count in the deadline's own time zone
+    sent_local = sent_at.astimezone(zone.region).date()
+    day = find_day(text, sent_local)
+    if isinstance(day, str):
+        return review(day)
+    placed = place(day, at, zone)
+    if isinstance(placed, str):
+        return review(placed)
+    return DueParse(placed.astimezone(UTC), None)
