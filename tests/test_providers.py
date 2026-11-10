@@ -10,6 +10,7 @@ from app.crypto import generate_key
 from app.providers import factory
 from app.providers.demo_data import DEMO_MESSAGES, DEMO_RESPONSES
 from app.providers.fakes import FakeExtractor, FakeMailReader
+from app.providers.gmail import GmailReader
 from app.providers.mail import (
     HistoryExpiredError,
     MailMessage,
@@ -39,7 +40,7 @@ def msg(n: int, day: int) -> MailMessage:
     )
 
 
-@pytest.mark.parametrize("cls", [MailReader, FakeMailReader])
+@pytest.mark.parametrize("cls", [MailReader, FakeMailReader, GmailReader])
 def test_mail_reader_has_no_write_methods(cls: type) -> None:
     for name in public_methods(cls):
         lowered = name.lower()
@@ -130,10 +131,12 @@ def test_factory_uses_fakes_in_demo_mode() -> None:
     assert isinstance(factory.extractor(settings), FakeExtractor)
 
 
-def test_factory_live_mode_is_not_wired_yet() -> None:
+def test_factory_live_mode_needs_a_token_and_has_no_extractor_yet() -> None:
     key = SecretStr(generate_key())
     settings = Settings(sinan_mode="live", sinan_encryption_key=key)
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ValueError, match="access token"):
         factory.mail_reader(settings)
+    reader = factory.mail_reader(settings, SecretStr("fake-access"))
+    assert isinstance(reader, GmailReader)
     with pytest.raises(NotImplementedError):
         factory.extractor(settings)

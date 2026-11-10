@@ -55,6 +55,12 @@ jobs:
             echo "Found a call to a forbidden Gmail API"
             exit 1
           fi
+          # The REST client must only send GET requests, and never to a write endpoint
+          rest='\.(post|put|patch|delete|request)\(|/(send|trash|untrash|modify|batchDelete|batchModify|import|insert|drafts|settings|labels)\b'
+          if grep -nE "$rest" app/providers/gmail*.py; then
+            echo "Found a write call or write endpoint in the Gmail REST client"
+            exit 1
+          fi
       - name: Database migrations
         run: uv run alembic upgrade head
       - name: pytest

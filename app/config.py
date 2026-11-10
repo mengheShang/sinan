@@ -5,8 +5,11 @@ from typing import Any, Literal, Self
 
 from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy import make_url
 
 from app.crypto import decode_key
+
+DEMO_SUFFIX = "_demo"
 
 
 class Settings(BaseSettings):
@@ -29,6 +32,8 @@ class Settings(BaseSettings):
     sinan_oauth_redirect_uri: str = "http://127.0.0.1:8000/oauth/google/callback"
     # Where the browser lands after the OAuth callback
     sinan_dashboard_url: str = "http://127.0.0.1:3000"
+    # How often the Worker syncs each mailbox
+    sinan_sync_interval_minutes: int = 15
 
     @field_validator(
         "sinan_encryption_key",
@@ -55,6 +60,18 @@ class Settings(BaseSettings):
             raise ValueError("SINAN_ENCRYPTION_KEY is required in live mode")
         decode_key(self.sinan_encryption_key.get_secret_value())
         return self
+
+    def db_url(self) -> str:
+        """DATABASE_URL, with `_demo` added to the database name in demo mode.
+
+        Demo and live data never share a database, so switching modes cannot
+        mix fake mail with real mail.
+        """
+        url = make_url(self.database_url)
+        name = url.database or ""
+        if self.sinan_mode == "demo" and not name.endswith(DEMO_SUFFIX):
+            url = url.set(database=name + DEMO_SUFFIX)
+        return url.render_as_string(hide_password=False)
 
 
 @lru_cache
