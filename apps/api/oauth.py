@@ -25,9 +25,9 @@ from app.crypto import TokenCipher, generate_key
 from app.db.accounts import connect_account, list_accounts, refresh_read_token
 from app.db.session import get_engine
 from app.oauth import PendingFlows, TokenStatus, expires_at, scopes_ok, token_status
+from app.providers import factory
 from app.providers.demo_data import DEMO_EMAIL
 from app.providers.fakes import FakeOAuth
-from app.providers.google_oauth import GoogleOAuth
 from app.providers.oauth import OAuthClient, OAuthError
 from apps.api.auth import public
 
@@ -58,15 +58,8 @@ def build_connector(settings: Settings) -> Connector:
         # Demo tokens are fake, so a per-process key is enough
         fake = FakeOAuth(DEMO_EMAIL, redirect)
         return Connector(fake, TokenCipher(generate_key()), flows, dashboard)
-    client_id = settings.google_client_id
-    secret = settings.google_client_secret
-    if client_id is None or secret is None:
-        raise ValueError("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are required in live mode")
-    key = settings.sinan_encryption_key
-    if key is None:
-        raise ValueError("SINAN_ENCRYPTION_KEY is required in live mode")
-    google = GoogleOAuth(client_id, secret, redirect)
-    cipher = TokenCipher(key.get_secret_value())
+    google = factory.google_oauth(settings)
+    cipher = factory.token_cipher(settings)
     return Connector(google, cipher, flows, dashboard)
 
 
@@ -147,6 +140,7 @@ class AccountOut(BaseModel):
     expires_at: datetime | None
     status: TokenStatus
     last_error: str | None
+    last_sync_at: datetime | None
 
 
 @router.get("/accounts")
@@ -169,6 +163,7 @@ def accounts(conn: ConnectorDep, session: SessionDep) -> list[AccountOut]:
             expires_at=ends,
             status=state,
             last_error=view.last_error,
+            last_sync_at=view.last_sync_at,
         )
         out.append(item)
     return out

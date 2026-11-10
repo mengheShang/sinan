@@ -29,6 +29,7 @@ class AccountView:
     authorized_at: datetime | None
     needs_reauth: bool
     last_error: str | None
+    last_sync_at: datetime | None
 
 
 def connect_account(
@@ -81,6 +82,7 @@ def list_accounts(session: Session) -> list[AccountView]:
             Credential.authorized_at,
             SyncState.needs_reauth,
             SyncState.last_error,
+            SyncState.last_success_at,
         )
         .outerjoin(
             Credential,
@@ -100,6 +102,7 @@ def list_accounts(session: Session) -> list[AccountView]:
             row.authorized_at,
             reauth,
             row.last_error,
+            row.last_success_at,
         )
         views.append(view)
     return views

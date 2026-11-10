@@ -16,6 +16,7 @@ type Account = {
   expires_at: string | null;
   status: "ok" | "expiring" | "expired" | "needs_reauth";
   last_error: string | null;
+  last_sync_at: string | null;
 };
 
 const MESSAGES: Record<string, string> = {
@@ -99,6 +100,8 @@ async function AccountList() {
             <dd>{utc(a.authorized_at)}</dd>
             <dt>Expires</dt>
             <dd>{utc(a.expires_at)}</dd>
+            <dt>Last sync</dt>
+            <dd>{a.last_sync_at ? utc(a.last_sync_at) : "Not yet"}</dd>
             {a.last_error ? (
               <>
                 <dt>Last error</dt>

@@ -10,7 +10,7 @@ from app.config import get_settings
 @lru_cache
 def get_engine() -> Engine:
     settings = get_settings()
-    return create_engine(settings.database_url, pool_pre_ping=True)
+    return create_engine(settings.db_url(), pool_pre_ping=True)
 
 
 def check_db(engine: Engine) -> bool:

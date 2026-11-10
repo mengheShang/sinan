@@ -23,7 +23,7 @@ def get_url() -> str:
     if url:
         return url
     settings = get_settings()
-    return settings.database_url
+    return settings.db_url()
 
 
 def run_migrations_offline() -> None:

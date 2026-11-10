@@ -39,8 +39,8 @@ services:
 
   api:
     <<: *backend
-    # Run database migrations before starting
-    command: sh -c "alembic upgrade head && uvicorn apps.api.main:app --host 0.0.0.0 --port 8000"
+    # Create the database if needed (demo mode uses <name>_demo), migrate, then start
+    command: sh -c "python -m app.db.ensure && alembic upgrade head && uvicorn apps.api.main:app --host 0.0.0.0 --port 8000"
     environment:
       SINAN_MODE: ${SINAN_MODE:-demo}
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-sinan}:${POSTGRES_PASSWORD:-sinan}@db:5432/${POSTGRES_DB:-sinan}
@@ -49,7 +49,8 @@ services:
       SINAN_DASHBOARD_USERNAME: ${SINAN_DASHBOARD_USERNAME:-}
       SINAN_DASHBOARD_PASSWORD_HASH: ${SINAN_DASHBOARD_PASSWORD_HASH:-}
       SINAN_SESSION_SECRET: ${SINAN_SESSION_SECRET:-}
-      # Read-only Gmail OAuth client. Only the API gets these; demo mode uses a fake
+      # Read-only Gmail OAuth client. The API connects accounts; the Worker refreshes
+      # read tokens with it. Demo mode uses a fake
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
     ports:
@@ -64,6 +65,18 @@ services:
     <<: *backend
     # Read-only token: sync, prefilter, extraction, daily digest
     command: python -m apps.worker.main
+    environment:
+      SINAN_MODE: ${SINAN_MODE:-demo}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-sinan}:${POSTGRES_PASSWORD:-sinan}@db:5432/${POSTGRES_DB:-sinan}
+      SINAN_ENCRYPTION_KEY: ${SINAN_ENCRYPTION_KEY:-}
+      SINAN_SYNC_INTERVAL_MINUTES: ${SINAN_SYNC_INTERVAL_MINUTES:-15}
+      # Needed to trade the stored read refresh token for an access token
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+    # Start after the API has created and migrated the database
+    depends_on:
+      api:
+        condition: service_healthy
 
   executor:
     <<: *backend
