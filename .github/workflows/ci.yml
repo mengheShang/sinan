@@ -62,7 +62,10 @@ jobs:
             exit 1
           fi
       - name: Database migrations
-        run: uv run alembic upgrade head
+        # Demo mode uses <name>_demo, which only exists once ensure has created it
+        run: |
+          uv run python -m app.db.ensure
+          uv run alembic upgrade head
       - name: pytest
         run: uv run pytest -q
 
