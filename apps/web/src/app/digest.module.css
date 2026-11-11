@@ -78,6 +78,28 @@
   text-decoration: underline;
 }
 
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.actions button {
+  font-size: 13px;
+  padding: 2px 10px;
+}
+
+.closed {
+  font-size: 13px;
+  color: #737373;
+}
+
+.meta a {
+  color: inherit;
+  text-decoration: underline;
+}
+
 .meta,
 .empty,
 .muted {

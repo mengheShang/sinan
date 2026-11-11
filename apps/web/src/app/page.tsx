@@ -30,6 +30,7 @@ async function SignedIn() {
     <form action={logout} className={styles.session}>
       <span>Signed in</span>
       <Link href="/accounts">Accounts</Link>
+      <Link href="/items">Closed items</Link>
       <button type="submit">Sign out</button>
     </form>
   );

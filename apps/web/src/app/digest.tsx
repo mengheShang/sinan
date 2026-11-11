@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { localDate, localTime, reviewText } from "@/lib/format";
 import { apiFetch } from "@/lib/session";
 import styles from "./digest.module.css";
+import { setStatus } from "./items/actions";
 
 export type Item = {
   id: string;
@@ -51,7 +52,7 @@ const STATUS_TEXT: Record<Account["status"], string> = {
   needs_reauth: "Needs reconnect",
 };
 
-async function load<T>(path: string): Promise<T | "error"> {
+export async function load<T>(path: string): Promise<T | "error"> {
   const resp = await apiFetch(path);
   if (resp.status === 401) {
     redirect("/login");
@@ -62,7 +63,41 @@ async function load<T>(path: string): Promise<T | "error"> {
   return (await resp.json()) as T;
 }
 
-function ItemCard({ item, zone }: { item: Item; zone: string }) {
+const CLOSED = new Set(["done", "dismissed"]);
+
+export function isClosed(item: Item): boolean {
+  return CLOSED.has(item.status);
+}
+
+function StatusButton({ id, status, label }: { id: string; status: string; label: string }) {
+  return (
+    <form action={setStatus}>
+      <input type="hidden" name="id" value={id} />
+      <input type="hidden" name="status" value={status} />
+      <button type="submit">{label}</button>
+    </form>
+  );
+}
+
+// Done and Dismiss on active items, Reopen on closed ones
+function StatusButtons({ item }: { item: Item }) {
+  if (isClosed(item)) {
+    return (
+      <div className={styles.actions}>
+        <span className={styles.closed}>{item.status === "done" ? "Done" : "Dismissed"}</span>
+        <StatusButton id={item.id} status="open" label="Reopen" />
+      </div>
+    );
+  }
+  return (
+    <div className={styles.actions}>
+      <StatusButton id={item.id} status="done" label="Done" />
+      <StatusButton id={item.id} status="dismissed" label="Dismiss" />
+    </div>
+  );
+}
+
+export function ItemCard({ item, zone }: { item: Item; zone: string }) {
   const review = item.status === "needs_review";
   return (
     <li className={styles.card}>
@@ -90,11 +125,12 @@ function ItemCard({ item, zone }: { item: Item; zone: string }) {
           </a>
         ) : null}
       </p>
+      <StatusButtons item={item} />
     </li>
   );
 }
 
-function Section({
+export function Section({
   title,
   empty,
   items,
@@ -135,27 +171,37 @@ function DigestView({ digest }: { digest: Digest | null | "error" }) {
     );
   }
   const zone = digest.timezone;
+  // Items closed since the digest was made drop out at once, not next morning
+  const all = [...digest.due_soon, ...digest.needs_review, ...digest.new];
+  const closed = new Set(all.filter(isClosed).map((i) => i.id));
+  const active = (items: Item[]) => items.filter((i) => !closed.has(i.id));
   return (
     <>
       <p className={styles.meta}>
         {localDate(digest.digest_date)} · made {localTime(digest.generated_at, zone)}
+        {closed.size > 0 ? (
+          <>
+            {" "}
+            · {closed.size} closed since then, <Link href="/items">see items</Link>
+          </>
+        ) : null}
       </p>
       <Section
         title="Due in the next 7 days"
         empty="Nothing due this week."
-        items={digest.due_soon}
+        items={active(digest.due_soon)}
         zone={zone}
       />
       <Section
         title="Needs review"
         empty="Nothing to check."
-        items={digest.needs_review}
+        items={active(digest.needs_review)}
         zone={zone}
       />
       <Section
         title={digest.since ? "New since the last digest" : "New"}
         empty="No new items."
-        items={digest.new}
+        items={active(digest.new)}
         zone={zone}
       />
     </>
