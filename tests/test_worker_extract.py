@@ -1,6 +1,5 @@
 """The Worker's extraction job setup: which rules load, and running without a key."""
 
-import logging
 from pathlib import Path
 
 import pytest
@@ -31,11 +30,10 @@ def test_malformed_local_rules_stop_the_worker(tmp_path: Path) -> None:
         load_prefilter(settings)
 
 
-def test_no_extractor_skips_extraction(caplog: pytest.LogCaptureFixture) -> None:
+def test_no_extractor_skips_extraction() -> None:
     def no_sessions() -> None:
         raise AssertionError("must not open a session")
 
-    caplog.set_level(logging.INFO, logger="sinan.worker.extract")
     rules = load_prefilter(Settings())
-    extract_all(no_sessions, None, rules, cap=10)  # type: ignore[arg-type]
-    assert "no ANTHROPIC_API_KEY" in caplog.text
+    result = extract_all(no_sessions, None, rules, cap=10)  # type: ignore[arg-type]
+    assert result is None

@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 
 from app.config import Settings
-from app.db.extract import extract_pending
+from app.db.extract import Counts, extract_pending
 from app.extraction.prefilter import EXAMPLE_RULES, Rules, load_rules
 from app.providers.llm import Extractor
 from apps.worker.sync_job import SessionFactory
@@ -35,20 +35,22 @@ def load_prefilter(settings: Settings) -> Rules:
 
 def extract_all(
     sessions: SessionFactory, extractor: Extractor | None, rules: Rules, cap: int
-) -> None:
+) -> Counts | None:
+    """Run one extraction pass. Returns its counts, or None when it did not run."""
     if extractor is None:
         log.info("Extraction skipped: no ANTHROPIC_API_KEY")
-        return
+        return None
     with sessions() as session:
         try:
             counts = extract_pending(session, extractor, rules, cap)
         except Exception as exc:
             # Class name only: exception text could quote mail content
             log.warning("Extraction failed: %s", type(exc).__name__)
-            return
+            return None
     log.info(
         "Extraction: %d sent, %d skipped, %d items",
         counts.extracted + counts.invalid + counts.errors,
         counts.skipped,
         counts.items,
     )
+    return counts
