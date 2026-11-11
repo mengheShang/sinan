@@ -1,0 +1,110 @@
+"""Read-only digest and item endpoints for the Dashboard.
+
+Both sit behind the login like every other route. Nothing here writes: the
+Worker makes digests, and item changes by the owner are a later Issue.
+"""
+
+import uuid
+from datetime import date, datetime
+from typing import Annotated, Literal
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
+
+from app.config import Settings, get_settings
+from app.db.digest import ItemView, latest, list_items, read_digest
+from apps.api.oauth import SessionDep
+
+router = APIRouter()
+
+SettingsDep = Annotated[Settings, Depends(get_settings)]
+Status = Literal["open", "needs_review", "done", "dismissed"]
+
+
+class ItemOut(BaseModel):
+    id: uuid.UUID
+    kind: str
+    course: str | None
+    title: str
+    due_raw: str | None
+    due_at: datetime | None
+    status: str
+    review: str | None
+    evidence: str | None
+    created_at: datetime
+    subject: str | None
+    sender: str | None
+    received_at: datetime | None
+    # Opens the source email in Gmail; None in demo mode, whose mail is fake
+    gmail_url: str | None
+
+
+class DigestOut(BaseModel):
+    digest_date: date
+    generated_at: datetime
+    since: datetime | None
+    # IANA zone for showing times; all times above are UTC
+    timezone: str
+    new: list[ItemOut]
+    due_soon: list[ItemOut]
+    needs_review: list[ItemOut]
+
+
+def gmail_url(view: ItemView, live: bool) -> str | None:
+    """A link to the message in Gmail's web app, signed in as its mailbox."""
+    if not live or view.account_email is None or view.provider_msg_id is None:
+        return None
+    account = quote(view.account_email, safe="@")
+    return f"https://mail.google.com/mail/?authuser={account}#all/{view.provider_msg_id}"
+
+
+def item_out(view: ItemView, live: bool) -> ItemOut:
+    return ItemOut(
+        id=view.id,
+        kind=view.kind,
+        course=view.course,
+        title=view.title,
+        due_raw=view.due_raw,
+        due_at=view.due_at,
+        status=view.status,
+        review=view.review,
+        evidence=view.evidence,
+        created_at=view.created_at,
+        subject=view.subject,
+        sender=view.sender,
+        received_at=view.received_at,
+        gmail_url=gmail_url(view, live),
+    )
+
+
+@router.get("/digest")
+def digest(session: SessionDep, settings: SettingsDep) -> DigestOut | None:
+    """The latest digest, or null before the Worker has made one."""
+    found = latest(session)
+    if found is None:
+        return None
+    view = read_digest(session, found)
+    live = settings.sinan_mode == "live"
+    sections = {name: [item_out(v, live) for v in items] for name, items in view.sections.items()}
+    return DigestOut(
+        digest_date=view.digest_date,
+        generated_at=view.generated_at,
+        since=view.since,
+        timezone=settings.sinan_timezone,
+        new=sections["new"],
+        due_soon=sections["due_soon"],
+        needs_review=sections["needs_review"],
+    )
+
+
+@router.get("/items")
+def items(
+    session: SessionDep,
+    settings: SettingsDep,
+    status: Annotated[list[Status] | None, Query()] = None,
+) -> list[ItemOut]:
+    """Items with the given statuses; open and needs_review by default."""
+    wanted = tuple(status) if status else ("open", "needs_review")
+    live = settings.sinan_mode == "live"
+    return [item_out(v, live) for v in list_items(session, wanted)]

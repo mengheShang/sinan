@@ -1,8 +1,24 @@
 .main {
-  max-width: 640px;
+  max-width: 720px;
   margin: 48px auto;
   padding: 0 16px;
   font-family: system-ui, sans-serif;
+  display: grid;
+  gap: 20px;
+}
+
+.note {
+  color: #737373;
+  font-size: 14px;
+}
+
+.health {
+  font-size: 14px;
+}
+
+.health summary {
+  cursor: pointer;
+  margin-bottom: 8px;
 }
 
 .list {
@@ -38,7 +54,6 @@
   display: flex;
   gap: 12px;
   align-items: center;
-  margin: 8px 0 24px;
 }
 
 .session button {
