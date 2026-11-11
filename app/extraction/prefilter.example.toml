@@ -26,14 +26,11 @@ domains = ["news.example.org"]
 keywords = ["newsletter", "webinar", "sale"]
 
 [school]
-# Mail likely to hold grades or other students' information
+# Mail likely to hold other students' personal information. Your own
+# grades are fine to process, so grade keywords do not belong here.
 sensitive_keywords = [
-  "grade posted",
-  "grades posted",
-  "grades released",
-  "gradebook",
   "roster",
-  "transcript",
-  "academic standing",
+  "class list",
+  "student list",
   "academic integrity",
 ]

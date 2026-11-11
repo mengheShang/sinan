@@ -3,9 +3,10 @@
 The prefilter looks at the sender, the subject and a few headers, never the
 body. The rules (ADR 0006), checked in this order:
 
-1. School accounts: a sensitive subject keyword (grades, rosters and the like)
-   always skips, even when an allow rule matches. This is the M0 item 3
-   mitigation for USC mail.
+1. School accounts: a sensitive subject keyword (rosters, class lists and
+   other mail about other students) always skips, even when an allow rule
+   matches. This is the M0 item 3 mitigation for USC mail. Your own grades
+   are not sensitive here.
 2. An allow rule (sender, domain or subject keyword) passes.
 3. A skip rule (sender, domain or subject keyword) skips.
 4. Bulk-mail headers (List-Unsubscribe, Precedence: bulk) skip.

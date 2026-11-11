@@ -28,7 +28,7 @@ RULES = Rules(
         domains=frozenset({"news.example.org", "example.edu"}),
         keywords=("newsletter",),
     ),
-    sensitive_keywords=("grades posted", "roster"),
+    sensitive_keywords=("class list", "roster"),
 )
 
 BULK = {"List-Unsubscribe": "<mailto:unsubscribe@example.org>"}
@@ -69,12 +69,12 @@ CASES = [
     (env(headers={"List-Unsubscribe": ""}), Decision("pass", "default")),
     (env(sender="notify@lms.example.edu", headers=BULK), Decision("pass", "allow_domain")),
     # Sensitive keywords: school only, and they beat allow rules
-    (env(subject="Midterm grades posted", role="school"), Decision("skip", "sensitive")),
+    (env(subject="Section 2 class list", role="school"), Decision("skip", "sensitive")),
     (
         env(sender="prof.rivera@example.edu", subject="Updated roster", role="school"),
         Decision("skip", "sensitive"),
     ),
-    (env(subject="Midterm grades posted"), Decision("pass", "default")),
+    (env(subject="Section 2 class list"), Decision("pass", "default")),
 ]
 
 
@@ -93,8 +93,15 @@ def test_keywords_match_whole_words_only(subject: str) -> None:
 
 
 def test_keyword_phrase_ignores_spacing_and_case() -> None:
-    message = env(subject="MIDTERM  Grades\tPosted", role="school")
+    message = env(subject="Updated  CLASS\tList", role="school")
     assert decide(message, RULES) == Decision("skip", "sensitive")
+
+
+@pytest.mark.parametrize("subject", ["Midterm grades posted", "Your final grade", "Gradebook"])
+def test_example_rules_let_your_own_grades_through(subject: str) -> None:
+    rules = load_rules(EXAMPLE_RULES)
+    message = env(sender="ta@example.edu", subject=subject, role="school")
+    assert decide(message, rules).action == "pass"
 
 
 def test_domain_rule_does_not_match_lookalike_domain() -> None:

@@ -6,7 +6,7 @@
 
 ## Context
 
-Issue #11 drops clearly irrelevant mail before it reaches the LLM, to cut cost and privacy exposure. M0 item 3 requires, for USC mail, preferring course notices and deadlines and excluding mail likely to contain grades or other students' information. Accounts carry a `school` or `personal` role, chosen when they are connected, so the prefilter can treat the two differently.
+Issue #11 drops clearly irrelevant mail before it reaches the LLM, to cut cost and privacy exposure. M0 item 3 requires, for USC mail, preferring course notices and deadlines and excluding mail likely to contain other students' personal information. It first said grades too; decision 4 narrows that. Accounts carry a `school` or `personal` role, chosen when they are connected, so the prefilter can treat the two differently.
 
 The prefilter sees only the sender, the subject and a few headers. It never reads the body.
 
@@ -24,9 +24,11 @@ This lets a broad skip rule, such as a whole bulk domain, coexist with an allow 
 
 `List-Unsubscribe` or `Precedence: bulk | list | junk` marks mailing lists and marketing mail. Course sites often send notifications with these headers too, so their senders or domains must be on the allow list.
 
-### 4. Sensitive keywords apply to school accounts only, and beat allow rules
+### 4. Sensitive keywords cover other students' information, apply to school accounts only, and beat allow rules
 
-They come from the USC policy mitigation, which does not cover personal mail. Within school mail they are checked first, so even an allowed sender's "grades posted" mail never reaches the LLM.
+They come from the USC policy mitigation, which does not cover personal mail. Within school mail they are checked first, so even an allowed sender's roster mail never reaches the LLM.
+
+Your own grades are not sensitive here. Instructors send each student only their own grades, so grade mail holds no one else's information, and it is your own record to process. Skipping it would also hide feedback and resubmission deadlines. The example list therefore holds terms like "roster" and "class list", not grade terms. This narrows the M0 item 3 mitigation, which first excluded grades as well.
 
 ## Order
 
