@@ -1,0 +1,39 @@
+# Example prefilter rules. Every sender and domain here is fictional.
+#
+# Put your real rules in config/prefilter.toml, which git ignores. Copy this
+# file there and edit it. Never commit real addresses (CLAUDE.md, rule 2).
+#
+# Order (ADR 0006):
+#   1. [school] sensitive_keywords skip school mail, even if allowed.
+#   2. [allow] passes.
+#   3. [skip] skips.
+#   4. Bulk headers (List-Unsubscribe, Precedence: bulk) skip.
+#   5. Everything else passes.
+#
+# Senders are full addresses. A domain also covers its subdomains, so
+# "example.edu" matches "mail.example.edu". Keywords match whole words or
+# phrases in the subject, ignoring case.
+
+[allow]
+senders = ["prof.rivera@example.edu"]
+# A course site that sends notifications with bulk headers
+domains = ["lms.example.edu"]
+keywords = ["assignment", "due", "deadline", "quiz", "exam", "syllabus"]
+
+[skip]
+senders = ["deals@shop.example.com"]
+domains = ["news.example.org"]
+keywords = ["newsletter", "webinar", "sale"]
+
+[school]
+# Mail likely to hold grades or other students' information
+sensitive_keywords = [
+  "grade posted",
+  "grades posted",
+  "grades released",
+  "gradebook",
+  "roster",
+  "transcript",
+  "academic standing",
+  "academic integrity",
+]
