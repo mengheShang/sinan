@@ -24,7 +24,12 @@ from sqlalchemy.orm import Session
 
 from app.db.models import AuditEvent, Message, SyncState
 from app.providers.gmail_parse import wanted
-from app.providers.mail import HistoryExpiredError, MailReader, MessageNotFoundError
+from app.providers.mail import (
+    HistoryExpiredError,
+    MailProviderError,
+    MailReader,
+    MessageNotFoundError,
+)
 
 FIRST_WINDOW = timedelta(days=30)
 # ADR 0002: after a cursor expires, re-sync from the last success, at most 30 days back
@@ -159,7 +164,7 @@ def sync_account(
         stored = store(session, account_id, reader, fresh)
     except Exception as exc:
         session.rollback()
-        record_failure(session, account_id, type(exc).__name__, now)
+        record_failure(session, account_id, error_label(exc), now)
         raise
     state = load_state(session, account_id)
     state.history_id = steps.cursor
@@ -172,8 +177,17 @@ def sync_account(
     return result
 
 
+def error_label(exc: Exception) -> str:
+    """Class name, plus the safe code a provider error carries. Never other text,
+    because an exception message could quote mail content."""
+    name = type(exc).__name__
+    if isinstance(exc, MailProviderError):
+        return f"{name}:{exc}"
+    return name
+
+
 def record_failure(session: Session, account_id: uuid.UUID, error: str, now: datetime) -> None:
-    """Keep the cursor; note when and how it failed (class name only, no content)."""
+    """Keep the cursor; note when and how it failed (a safe label, no content)."""
     state = load_state(session, account_id)
     state.last_attempt_at = now
     state.last_error = error

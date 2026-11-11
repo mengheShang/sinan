@@ -18,6 +18,11 @@ class MessageNotFoundError(Exception):
     """The provider has no message with this ID."""
 
 
+class MailProviderError(Exception):
+    """A provider request failed. Its text is a short safe code, such as
+    "http_403:userRateLimitExceeded", never mail content, so it may be logged."""
+
+
 @dataclass(frozen=True)
 class MailProfile:
     email: str

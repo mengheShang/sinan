@@ -178,6 +178,89 @@ def test_errors_hold_status_only() -> None:
     assert str(caught.value) == "http_500"
 
 
+def google_error(status: int, reason: str, headers: dict[str, str] | None = None) -> httpx.Response:
+    """An error in Google's JSON format, with a message that must never be kept."""
+    body = {
+        "error": {
+            "code": status,
+            "message": "Quota text that might echo request details",
+            "errors": [{"reason": reason, "message": "details"}],
+        }
+    }
+    return httpx.Response(status, content=json.dumps(body).encode(), headers=headers)
+
+
+class Sleeps:
+    def __init__(self) -> None:
+        self.waits: list[float] = []
+
+    def __call__(self, seconds: float) -> None:
+        self.waits.append(seconds)
+
+
+def flaky(failures: list[httpx.Response]) -> Handler:
+    """Answers with each failure in turn, then succeeds."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if failures:
+            return failures.pop(0)
+        return ok({"emailAddress": "student@example.edu", "historyId": "42"})
+
+    return handle
+
+
+def reader_with(fake: Recorder, sleeps: Sleeps) -> GmailReader:
+    http = httpx.Client(transport=httpx.MockTransport(fake))
+    return GmailReader(SecretStr("fake-access"), http, sleep=sleeps)
+
+
+@pytest.mark.parametrize("reason", ["userRateLimitExceeded", "rateLimitExceeded"])
+def test_rate_limited_403_is_retried(reason: str) -> None:
+    fake = Recorder(flaky([google_error(403, reason), google_error(403, reason)]))
+    sleeps = Sleeps()
+    profile = reader_with(fake, sleeps).get_profile()
+    assert profile.history_id == "42"
+    assert len(fake.requests) == 3
+    assert sleeps.waits == [1.0, 2.0]
+
+
+def test_429_honors_retry_after_with_a_cap() -> None:
+    failures = [
+        httpx.Response(429, content=b"{}", headers={"retry-after": "3"}),
+        httpx.Response(429, content=b"{}", headers={"retry-after": "600"}),
+    ]
+    sleeps = Sleeps()
+    reader_with(Recorder(flaky(failures)), sleeps).get_profile()
+    assert sleeps.waits == [3.0, 32.0]
+
+
+def test_rate_limit_gives_up_after_the_backoff() -> None:
+    fake = Recorder(lambda r: google_error(403, "userRateLimitExceeded"))
+    sleeps = Sleeps()
+    with pytest.raises(GmailError) as caught:
+        reader_with(fake, sleeps).get_message("a1")
+    assert str(caught.value) == "http_403:userRateLimitExceeded"
+    assert sleeps.waits == [1.0, 2.0, 4.0, 8.0, 16.0]
+    assert len(fake.requests) == 6
+
+
+def test_other_403_fails_at_once_with_its_reason() -> None:
+    fake = Recorder(lambda r: google_error(403, "domainPolicy"))
+    sleeps = Sleeps()
+    with pytest.raises(GmailError) as caught:
+        reader_with(fake, sleeps).get_message("a1")
+    assert str(caught.value) == "http_403:domainPolicy"
+    assert sleeps.waits == []
+    assert len(fake.requests) == 1
+
+
+def test_unsafe_reason_is_dropped() -> None:
+    fake = Recorder(lambda r: google_error(403, "not a code: Homework 3"))
+    with pytest.raises(GmailError) as caught:
+        reader_with(fake, Sleeps()).get_profile()
+    assert str(caught.value) == "http_403"
+
+
 def test_network_failure() -> None:
     def handle(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("down")
