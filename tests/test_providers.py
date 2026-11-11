@@ -8,6 +8,7 @@ from pydantic import SecretStr
 from app.config import Settings
 from app.crypto import generate_key
 from app.providers import factory
+from app.providers.anthropic_llm import AnthropicExtractor
 from app.providers.demo_data import DEMO_MESSAGES, DEMO_RESPONSES
 from app.providers.fakes import FakeExtractor, FakeMailReader
 from app.providers.gmail import GmailReader
@@ -131,12 +132,21 @@ def test_factory_uses_fakes_in_demo_mode() -> None:
     assert isinstance(factory.extractor(settings), FakeExtractor)
 
 
-def test_factory_live_mode_needs_a_token_and_has_no_extractor_yet() -> None:
+def test_factory_live_mode_needs_a_token() -> None:
     key = SecretStr(generate_key())
     settings = Settings(sinan_mode="live", sinan_encryption_key=key)
     with pytest.raises(ValueError, match="access token"):
         factory.mail_reader(settings)
     reader = factory.mail_reader(settings, SecretStr("fake-access"))
     assert isinstance(reader, GmailReader)
-    with pytest.raises(NotImplementedError):
-        factory.extractor(settings)
+
+
+def test_factory_live_extractor_needs_an_api_key() -> None:
+    key = SecretStr(generate_key())
+    without = Settings(sinan_mode="live", sinan_encryption_key=key, anthropic_api_key=None)
+    assert factory.extractor(without) is None
+    api_key = SecretStr("sk-ant-fake-key-for-tests")
+    live = Settings(sinan_mode="live", sinan_encryption_key=key, anthropic_api_key=api_key)
+    ext = factory.extractor(live)
+    assert isinstance(ext, AnthropicExtractor)
+    assert ext.model == "claude-haiku-5-5"

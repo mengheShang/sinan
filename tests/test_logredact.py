@@ -21,6 +21,7 @@ REFRESH = "1//0FakeRefreshTokenForTestsOnly"
         ('{"refresh_token": "plain-fake-value"}', "plain-fake-value"),
         ("client_secret=fake-secret-value&x=1", "fake-secret-value"),
         ("GET /oauth/callback?state=s&code=4/fake-code HTTP/1.1", "4/fake-code"),
+        ("key sk-ant-api03-FakeKeyForTests_Only-1 rejected", "FakeKeyForTests"),
     ],
 )
 def test_redact_hides_secret(text: str, secret: str) -> None:
