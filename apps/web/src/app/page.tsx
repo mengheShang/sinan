@@ -4,6 +4,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { apiFetch, apiUrl } from "@/lib/session";
 import { logout } from "./actions";
+import { Dashboard } from "./digest";
 import styles from "./page.module.css";
 
 type Check = { label: string; ok: boolean; detail: string };
@@ -28,6 +29,7 @@ async function SignedIn() {
   return (
     <form action={logout} className={styles.session}>
       <span>Signed in</span>
+      <Link href="/accounts">Accounts</Link>
       <button type="submit">Sign out</button>
     </form>
   );
@@ -58,13 +60,18 @@ export default function Home() {
       <Suspense fallback={<p>Checking session…</p>}>
         <SignedIn />
       </Suspense>
-      <p>
-        <Link href="/accounts">Accounts</Link>: connect Gmail and check token age.
+      <p className={styles.note}>
+        Your daily digest. Sinan only reads mail; it is shown here and never sent anywhere.
       </p>
-      <p>Health checks for each service.</p>
-      <Suspense fallback={<p>Checking…</p>}>
-        <Status />
+      <Suspense fallback={<p>Loading the digest…</p>}>
+        <Dashboard />
       </Suspense>
+      <details className={styles.health}>
+        <summary>Service health</summary>
+        <Suspense fallback={<p>Checking…</p>}>
+          <Status />
+        </Suspense>
+      </details>
     </main>
   );
 }

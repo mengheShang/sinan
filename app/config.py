@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 from typing import Any, Literal, Self
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -44,6 +45,24 @@ class Settings(BaseSettings):
     # Local prefilter rules with real senders; the example rules are used when
     # this file does not exist (ADR 0006)
     sinan_prefilter_rules: str = "config/prefilter.toml"
+    # Digest days and displayed times use this zone; storage stays UTC (ADR 0008)
+    sinan_timezone: str = "America/Los_Angeles"
+    # Local hour after which the Worker makes the day's digest
+    sinan_digest_hour: int = Field(default=7, ge=0, le=23)
+
+    @field_validator("sinan_timezone")
+    @classmethod
+    def known_zone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(
+                "SINAN_TIMEZONE must be an IANA name like America/Los_Angeles"
+            ) from exc
+        return value
+
+    def zone(self) -> ZoneInfo:
+        return ZoneInfo(self.sinan_timezone)
 
     @field_validator(
         "sinan_encryption_key",

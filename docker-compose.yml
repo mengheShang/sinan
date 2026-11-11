@@ -53,6 +53,8 @@ services:
       # read tokens with it. Demo mode uses a fake
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      # Zone the Dashboard shows digest times in
+      SINAN_TIMEZONE: ${SINAN_TIMEZONE:-America/Los_Angeles}
     ports:
       - "127.0.0.1:8000:8000"
     healthcheck:
@@ -77,6 +79,9 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       SINAN_LLM_MODEL: ${SINAN_LLM_MODEL:-claude-haiku-5-5}
       SINAN_EXTRACT_PER_CYCLE: ${SINAN_EXTRACT_PER_CYCLE:-100}
+      # The daily digest: its local day and the hour after which it is made
+      SINAN_TIMEZONE: ${SINAN_TIMEZONE:-America/Los_Angeles}
+      SINAN_DIGEST_HOUR: ${SINAN_DIGEST_HOUR:-7}
     # Local prefilter rules (git-ignored); the example rules apply when absent
     volumes:
       - ./config:/srv/config:ro

@@ -1,4 +1,4 @@
-"""Worker entry point: scheduled mail sync, then prefilter and extraction.
+"""Worker entry point: scheduled mail sync, prefilter and extraction, then the digest.
 
 The Worker only ever holds the read-only token.
 """
@@ -9,12 +9,13 @@ from datetime import UTC, datetime
 from apscheduler.schedulers.blocking import BlockingScheduler
 from sqlalchemy.orm import sessionmaker
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.db.session import get_engine
 from app.extraction.prefilter import Rules
 from app.logredact import install_redaction
 from app.providers import factory
 from app.providers.llm import Extractor
+from apps.worker.digest_job import digest_today
 from apps.worker.extract_job import extract_all, load_prefilter
 from apps.worker.sync_job import ReaderFor, SessionFactory, build_readers, sync_all
 
@@ -27,14 +28,15 @@ def heartbeat() -> None:
 
 def cycle(
     sessions: SessionFactory,
+    settings: Settings,
     reader_for: ReaderFor,
     extractor: Extractor | None,
     rules: Rules,
-    cap: int,
 ) -> None:
-    """Sync first, so extraction sees the newest mail."""
+    """Sync, then extract, then the digest, so each step sees the one before."""
     sync_all(sessions, reader_for)
-    extract_all(sessions, extractor, rules, cap)
+    extract_all(sessions, extractor, rules, settings.sinan_extract_per_cycle)
+    digest_today(sessions, settings)
 
 
 def main() -> None:
@@ -46,13 +48,12 @@ def main() -> None:
     reader_for = build_readers(settings)
     extractor = factory.extractor(settings)
     rules = load_prefilter(settings)
-    cap = settings.sinan_extract_per_cycle
     scheduler = BlockingScheduler(timezone="UTC")
     scheduler.add_job(heartbeat, "interval", seconds=60, id="heartbeat")
     scheduler.add_job(
         cycle,
         "interval",
-        args=[sessions, reader_for, extractor, rules, cap],
+        args=[sessions, settings, reader_for, extractor, rules],
         minutes=settings.sinan_sync_interval_minutes,
         id="sync",
         # Run once right away, then on the interval; never two runs at once

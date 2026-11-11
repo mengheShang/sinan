@@ -1,6 +1,7 @@
 """ORM models for the M1 tables.
 
-M1 creates 8 of the 11 phase-one tables. `proposals`, `grants` and `actions`
+M1 creates 8 of the 11 phase-one tables, plus `digests` and `digest_items`
+(ADR 0008). `proposals`, `grants` and `actions`
 come in M3 (ADR 0002). Every model must be defined in or imported into this
 module so Alembic can discover it.
 
@@ -8,11 +9,12 @@ All primary keys are UUIDs and all timestamps are stored in UTC.
 """
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import (
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -45,6 +47,7 @@ ITEM_KINDS = ("deadline", "todo")
 ITEM_STATUSES = ("open", "done", "dismissed", "needs_review")
 CHANGE_TYPES = ("create", "update", "status")
 VERSION_ACTORS = ("extraction", "user")
+DIGEST_SECTIONS = ("new", "due_soon", "needs_review")
 
 
 def uuid_pk() -> Mapped[uuid.UUID]:
@@ -266,4 +269,39 @@ class AuditEvent(Base):
     data: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         server_default=text("'{}'::jsonb"),
+    )
+
+
+class Digest(Base):
+    """One daily digest, made by the Worker each morning (ADR 0008)."""
+
+    __tablename__ = "digests"
+    __table_args__ = (UniqueConstraint("digest_date"),)
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    # The local day it is for, in SINAN_TIMEZONE
+    digest_date: Mapped[date] = mapped_column(Date)
+    generated_at: Mapped[datetime] = mapped_column(UTC_TS)
+    # The previous digest's generated_at; items created after it are "new"
+    since: Mapped[datetime | None] = mapped_column(UTC_TS)
+    created_at: Mapped[datetime] = created_at()
+
+
+class DigestItem(Base):
+    """Which items were in which section of a digest. Copies no content."""
+
+    __tablename__ = "digest_items"
+    __table_args__ = (
+        CheckConstraint(one_of("section", DIGEST_SECTIONS), name="section"),
+        Index(None, "item_id"),
+    )
+
+    digest_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("digests.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    section: Mapped[str] = mapped_column(Text, primary_key=True)
+    item_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("items.id", ondelete="RESTRICT"),
+        primary_key=True,
     )
