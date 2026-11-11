@@ -1,4 +1,4 @@
-"""Worker entry point: scheduled mail sync, and extraction later (#13).
+"""Worker entry point: scheduled mail sync, then prefilter and extraction.
 
 The Worker only ever holds the read-only token.
 """
@@ -11,14 +11,30 @@ from sqlalchemy.orm import sessionmaker
 
 from app.config import get_settings
 from app.db.session import get_engine
+from app.extraction.prefilter import Rules
 from app.logredact import install_redaction
-from apps.worker.sync_job import build_readers, sync_all
+from app.providers import factory
+from app.providers.llm import Extractor
+from apps.worker.extract_job import extract_all, load_prefilter
+from apps.worker.sync_job import ReaderFor, SessionFactory, build_readers, sync_all
 
 log = logging.getLogger("sinan.worker")
 
 
 def heartbeat() -> None:
     log.info("worker heartbeat")
+
+
+def cycle(
+    sessions: SessionFactory,
+    reader_for: ReaderFor,
+    extractor: Extractor | None,
+    rules: Rules,
+    cap: int,
+) -> None:
+    """Sync first, so extraction sees the newest mail."""
+    sync_all(sessions, reader_for)
+    extract_all(sessions, extractor, rules, cap)
 
 
 def main() -> None:
@@ -28,12 +44,15 @@ def main() -> None:
     sessions = sessionmaker(get_engine())
     # Fails at startup in live mode when the Google client or key is missing
     reader_for = build_readers(settings)
+    extractor = factory.extractor(settings)
+    rules = load_prefilter(settings)
+    cap = settings.sinan_extract_per_cycle
     scheduler = BlockingScheduler(timezone="UTC")
     scheduler.add_job(heartbeat, "interval", seconds=60, id="heartbeat")
     scheduler.add_job(
-        sync_all,
+        cycle,
         "interval",
-        args=[sessions, reader_for],
+        args=[sessions, reader_for, extractor, rules, cap],
         minutes=settings.sinan_sync_interval_minutes,
         id="sync",
         # Run once right away, then on the interval; never two runs at once

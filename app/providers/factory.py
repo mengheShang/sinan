@@ -7,6 +7,7 @@ from pydantic import SecretStr
 
 from app.config import Settings
 from app.crypto import TokenCipher
+from app.providers.anthropic_llm import AnthropicExtractor
 from app.providers.demo_data import DEMO_EMAIL, DEMO_MESSAGES, DEMO_RESPONSES
 from app.providers.fakes import FakeExtractor, FakeMailReader
 from app.providers.gmail import GmailReader
@@ -40,8 +41,11 @@ def token_cipher(settings: Settings) -> TokenCipher:
     return TokenCipher(key.get_secret_value())
 
 
-def extractor(settings: Settings) -> Extractor:
+def extractor(settings: Settings) -> Extractor | None:
+    """The fake model in demo mode; Claude in live mode, or None without a key."""
     if settings.sinan_mode == "demo":
         return FakeExtractor(DEMO_RESPONSES)
-    # The real Anthropic client comes in #13
-    raise NotImplementedError("live extractor is not implemented yet")
+    key = settings.anthropic_api_key
+    if key is None:
+        return None
+    return AnthropicExtractor(key, settings.sinan_llm_model)

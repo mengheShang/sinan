@@ -17,6 +17,8 @@ PATTERNS = [
     # Google OAuth access tokens and refresh tokens
     re.compile(r"ya29\.[0-9A-Za-z_\-]+"),
     re.compile(r"1//[0-9A-Za-z_\-]+"),
+    # Anthropic API keys
+    re.compile(r"sk-ant-[0-9A-Za-z_\-]+"),
     # Authorization headers
     re.compile(r"(?i)(bearer\s+)[0-9A-Za-z._~+/\-]+=*"),
     # key=value or "key": "value" pairs for secret-looking keys

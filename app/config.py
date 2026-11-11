@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Any, Literal, Self
 
-from pydantic import SecretStr, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import make_url
 
@@ -34,6 +34,16 @@ class Settings(BaseSettings):
     sinan_dashboard_url: str = "http://127.0.0.1:3000"
     # How often the Worker syncs each mailbox
     sinan_sync_interval_minutes: int = 15
+    # Claude API key, read by the Worker only. Live mode without it syncs mail
+    # but skips extraction; demo mode uses a fake model.
+    anthropic_api_key: SecretStr | None = None
+    # Extraction model (M0 item 7); M2's evaluation may change it
+    sinan_llm_model: str = "claude-haiku-5-5"
+    # Most emails sent to the model per Worker cycle; the rest wait (ADR 0007)
+    sinan_extract_per_cycle: int = Field(default=100, ge=1)
+    # Local prefilter rules with real senders; the example rules are used when
+    # this file does not exist (ADR 0006)
+    sinan_prefilter_rules: str = "config/prefilter.toml"
 
     @field_validator(
         "sinan_encryption_key",
@@ -42,6 +52,7 @@ class Settings(BaseSettings):
         "sinan_session_secret",
         "google_client_id",
         "google_client_secret",
+        "anthropic_api_key",
         mode="before",
     )
     @classmethod

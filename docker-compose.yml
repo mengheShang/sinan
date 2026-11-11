@@ -73,6 +73,13 @@ services:
       # Needed to trade the stored read refresh token for an access token
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      # Extraction; without a key, live mode syncs but extracts nothing
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      SINAN_LLM_MODEL: ${SINAN_LLM_MODEL:-claude-haiku-5-5}
+      SINAN_EXTRACT_PER_CYCLE: ${SINAN_EXTRACT_PER_CYCLE:-100}
+    # Local prefilter rules (git-ignored); the example rules apply when absent
+    volumes:
+      - ./config:/srv/config:ro
     # Start after the API has created and migrated the database
     depends_on:
       api:

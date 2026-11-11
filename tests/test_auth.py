@@ -217,6 +217,8 @@ def test_expired_cookie_is_401(client: TestClient, clock: FakeClock, auth: Auth)
 def test_tampered_cookie_is_401(client: TestClient) -> None:
     assert login(client) == 200
     token = client.cookies[COOKIE]
+    # Clear first: httpx2 adds a second cookie instead of replacing the first
+    client.cookies.clear()
     client.cookies.set(COOKIE, token[:-2] + "xx")
     assert client.get("/auth/session").status_code == 401
 
