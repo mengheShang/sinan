@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.db.accounts import list_accounts, refresh_read_token
-from app.db.sync import sync_account
+from app.db.sync import error_label, sync_account
 from app.providers import factory
 from app.providers.demo_data import DEMO_EMAIL
 from app.providers.mail import MailReader
@@ -81,8 +81,8 @@ def sync_all(sessions: SessionFactory, reader_for: ReaderFor, clock: Clock = utc
             try:
                 result = sync_account(session, reader, account.id, clock())
             except Exception as exc:
-                # Class name only: exception text could quote mail content
-                log.warning("Sync failed: %s", type(exc).__name__)
+                # A safe label only: exception text could quote mail content
+                log.warning("Sync failed: %s", error_label(exc))
                 continue
         log.info("Sync %s: %d listed, %d new", result.mode, result.listed, result.stored)
         done += 1

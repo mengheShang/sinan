@@ -3,8 +3,15 @@
 It only sends GET requests, and only to the four endpoints below. It has no
 method that sends, deletes, trashes, labels or changes settings (CLAUDE.md
 rule 4). tests/test_gmail.py checks every request it makes.
+
+Rate limits: Gmail answers 429, or 403 with a rate-limit reason, when a
+mailbox is read too fast. Those requests are retried with exponential
+backoff, as Google's usage-limit guide asks. Any other 403 fails at once.
 """
 
+import re
+import time
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
@@ -17,6 +24,7 @@ from app.providers.mail import (
     HistoryExpiredError,
     MailMessage,
     MailProfile,
+    MailProviderError,
     MessageNotFoundError,
 )
 
@@ -31,25 +39,95 @@ PAGE_SIZE = 500
 WINDOW_QUERY = "-in:spam -in:trash -in:drafts -in:sent"
 
 
-class GmailError(Exception):
-    """Gmail refused or failed a request. Holds the HTTP status only, never a body."""
+# Retries after the first try, and the waits before each, in seconds
+BACKOFF = (1.0, 2.0, 4.0, 8.0, 16.0)
+MAX_WAIT = 32.0
+RATE_REASONS = frozenset({"rateLimitExceeded", "userRateLimitExceeded"})
+# Google reason codes are short camelCase words; anything else is not kept
+SAFE_REASON = re.compile(r"^[A-Za-z]{1,64}$")
+
+Sleep = Callable[[float], None]
+
+
+class GmailError(MailProviderError):
+    """Gmail refused or failed a request.
+
+    Holds the HTTP status and Google's reason code, such as
+    "http_403:userRateLimitExceeded". Never a response body.
+    """
+
+
+def error_reason(resp: httpx.Response) -> str | None:
+    """Google's machine-readable reason code from an error body, if it is safe."""
+    try:
+        body = resp.json()
+    except ValueError:
+        return None
+    if not isinstance(body, dict):
+        return None
+    error = body.get("error")
+    if not isinstance(error, dict):
+        return None
+    errors = error.get("errors")
+    reason = None
+    if isinstance(errors, list) and errors and isinstance(errors[0], dict):
+        reason = errors[0].get("reason")
+    if isinstance(reason, str) and SAFE_REASON.match(reason):
+        return reason
+    return None
+
+
+def is_rate_limited(resp: httpx.Response) -> bool:
+    if resp.status_code == 429:
+        return True
+    return resp.status_code == 403 and error_reason(resp) in RATE_REASONS
+
+
+def retry_wait(resp: httpx.Response, default: float) -> float:
+    """Retry-After in seconds when Gmail sends one, capped; otherwise the backoff step."""
+    value = resp.headers.get("retry-after", "")
+    if value.isdigit():
+        return min(float(value), MAX_WAIT)
+    return default
+
+
+def status_code(resp: httpx.Response) -> str:
+    reason = error_reason(resp)
+    code = f"http_{resp.status_code}"
+    return code if reason is None else f"{code}:{reason}"
 
 
 class GmailReader:
-    def __init__(self, access_token: SecretStr, http: httpx.Client | None = None) -> None:
+    def __init__(
+        self,
+        access_token: SecretStr,
+        http: httpx.Client | None = None,
+        sleep: Sleep = time.sleep,
+    ) -> None:
         self._token = access_token
         self._http = http or httpx.Client(timeout=TIMEOUT)
+        self._sleep = sleep
 
-    def _get(self, url: str, params: dict[str, str] | None = None) -> httpx.Response:
+    def _send(self, url: str, params: dict[str, str] | None) -> httpx.Response:
         headers = {"Authorization": f"Bearer {self._token.get_secret_value()}"}
         try:
             return self._http.get(url, params=params, headers=headers)
         except httpx.HTTPError as exc:
             raise GmailError("Gmail unreachable") from exc
 
+    def _get(self, url: str, params: dict[str, str] | None = None) -> httpx.Response:
+        """GET, retrying rate-limited answers with backoff. Returns the last answer."""
+        resp = self._send(url, params)
+        for step in BACKOFF:
+            if not is_rate_limited(resp):
+                return resp
+            self._sleep(retry_wait(resp, step))
+            resp = self._send(url, params)
+        return resp
+
     def _json(self, resp: httpx.Response) -> dict[str, Any]:
         if resp.status_code != 200:
-            raise GmailError(f"http_{resp.status_code}")
+            raise GmailError(status_code(resp))
         body = resp.json()
         if not isinstance(body, dict):
             raise GmailError("malformed response")

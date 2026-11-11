@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Account, AuditEvent, Credential, Message, SyncState
 from app.db.sync import MAX_FALLBACK, sync_account, window_start
 from app.providers.fakes import FakeMailReader
+from app.providers.gmail import GmailError
 from app.providers.mail import MailMessage, MailReader
 from apps.worker.sync_job import sync_all
 
@@ -166,6 +167,28 @@ def test_crash_before_commit_keeps_the_cursor(session: Session, account: uuid.UU
     assert row.last_error == "RuntimeError"
     healthy = FakeMailReader(EMAIL, messages)
     assert run(session, healthy, account) == "initial"
+    assert count(session) == 3
+
+
+class LimitedReader(FakeMailReader):
+    """Gmail keeps refusing one message, as when retries run out."""
+
+    def get_message(self, provider_msg_id: str) -> MailMessage:
+        if provider_msg_id == "m002":
+            raise GmailError("http_403:userRateLimitExceeded")
+        return super().get_message(provider_msg_id)
+
+
+def test_provider_error_records_its_code(session: Session, account: uuid.UUID) -> None:
+    messages = [msg(1, 3), msg(2, 2), msg(3, 1)]
+    with pytest.raises(GmailError):
+        sync_account(session, LimitedReader(EMAIL, messages), account, NOW)
+    row = state(session, account)
+    assert row.last_error == "GmailError:http_403:userRateLimitExceeded"
+    assert row.history_id is None
+    # The unfinished batch is rolled back; full batches would be kept
+    assert count(session) == 0
+    assert run(session, FakeMailReader(EMAIL, messages), account) == "initial"
     assert count(session) == 3
 
 
