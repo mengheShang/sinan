@@ -112,6 +112,7 @@ The owner does all of this. No code in this repository is involved, and no token
 - Conclusion: The owner chose option D. The policy does not cover a student processing their own mail, and the owner judges the risk acceptable. This is a conservative reading of the policy, not legal advice. Asking ITS later stays possible and would not block development.
 - Required mitigations for M1:
   - Send only prefiltered mail. Prefer course notices and deadlines. Exclude mail that likely contains grades or other students' personal information.
+    - Amended 2026-11-10 (ADR 0006): your own grades may be processed, since instructors send each student only their own. Mail likely to contain other students' personal information is still excluded.
   - Strip quoted history and unneeded headers before sending.
   - Choose a provider with short retention and no training on API data (item 7).
   - Never put USC mail content in the repository, logs or reports.
