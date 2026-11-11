@@ -51,7 +51,7 @@ PRs touching any of the following must call it out in the description and wait f
 - Keep statements short and avoid long chained calls. Assign each step to a variable.
 - Use short, meaningful names.
 - Keep functions small. Side effects live in `app/actions/` and `app/providers/`; keep everything else as pure as possible.
-- Store all times in UTC. If the date, time zone or year is missing or ambiguous, mark the item `needs_review` instead of guessing.
+- Store all times in UTC. If the date, time zone or year is missing or ambiguous, mark the item `needs_review` instead of guessing. The one exception is a missing year, which is inferred from the email date by the fixed rule in ADR 0005.
 - Put every external service behind an interface in `app/providers/`, with a fake implementation for tests and the demo.
 - The frontend uses Next.js 16 with `cacheComponents` enabled, which differs a lot from older versions. Before writing frontend code, read `apps/web/AGENTS.md` and the relevant docs in `apps/web/node_modules/next/dist/docs/`.
 
