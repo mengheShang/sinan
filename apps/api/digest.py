@@ -1,7 +1,8 @@
-"""Read-only digest and item endpoints for the Dashboard.
+"""Digest and item endpoints for the Dashboard.
 
-Both sit behind the login like every other route. Nothing here writes: the
-Worker makes digests, and item changes by the owner are a later Issue.
+All sit behind the login like every other route. The Worker makes digests;
+the only write here is the owner changing an item's status, which touches
+the local database alone.
 """
 
 import uuid
@@ -9,11 +10,12 @@ from datetime import date, datetime
 from typing import Annotated, Literal
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
 from app.config import Settings, get_settings
 from app.db.digest import ItemView, latest, list_items, read_digest
+from app.db.item_status import BadMove, UnknownItem, set_status
 from apps.api.oauth import SessionDep
 
 router = APIRouter()
@@ -108,3 +110,27 @@ def items(
     wanted = tuple(status) if status else ("open", "needs_review")
     live = settings.sinan_mode == "live"
     return [item_out(v, live) for v in list_items(session, wanted)]
+
+
+class StatusBody(BaseModel):
+    status: Literal["open", "done", "dismissed"]
+
+
+class StatusOut(BaseModel):
+    status: str
+    version: int
+
+
+@router.post("/items/{item_id}/status")
+def change_status(item_id: uuid.UUID, body: StatusBody, session: SessionDep) -> StatusOut:
+    """Mark an item done or dismissed, or reopen it. 409 for a move not allowed."""
+    try:
+        version = set_status(session, item_id, body.status)
+    except UnknownItem as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown item") from exc
+    except BadMove as exc:
+        session.rollback()
+        detail = f"Cannot move from {exc.old} to {exc.new}"
+        raise HTTPException(status.HTTP_409_CONFLICT, detail) from exc
+    session.commit()
+    return StatusOut(status=body.status, version=version.version)
