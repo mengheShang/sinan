@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     sinan_timezone: str = "America/Los_Angeles"
     # Local hour after which the Worker makes the day's digest
     sinan_digest_hour: int = Field(default=7, ge=0, le=23)
+    # Days a pending proposal waits before it expires, unless its due time
+    # comes sooner (ADR 0009, decision 6)
+    sinan_proposal_ttl_days: int = Field(default=7, ge=1)
 
     @field_validator("sinan_timezone")
     @classmethod

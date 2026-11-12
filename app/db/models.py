@@ -1,8 +1,8 @@
-"""ORM models for the M1 tables.
+"""ORM models.
 
 M1 creates 8 of the 11 phase-one tables, plus `digests` and `digest_items`
-(ADR 0008). `proposals`, `grants` and `actions`
-come in M3 (ADR 0002). Every model must be defined in or imported into this
+(ADR 0008). M2 adds `proposals` (ADR 0009, decision 2); `grants` and
+`actions` come in M3. Every model must be defined in or imported into this
 module so Alembic can discover it.
 
 All primary keys are UUIDs and all timestamps are stored in UTC.
@@ -30,6 +30,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.proposals import HASH_PATTERN
 
 UTC_TS = DateTime(timezone=True)
 
@@ -48,6 +49,10 @@ ITEM_STATUSES = ("open", "done", "dismissed", "needs_review")
 CHANGE_TYPES = ("create", "update", "status")
 VERSION_ACTORS = ("extraction", "user")
 DIGEST_SECTIONS = ("new", "due_soon", "needs_review")
+PROPOSAL_KINDS = ("item_update",)
+PROPOSAL_STATUSES = ("pending", "approved", "rejected", "expired", "superseded", "executed")
+# Statuses the owner decided; exactly these carry a decision time
+DECIDED_STATUSES = ("approved", "rejected", "executed")
 
 
 def uuid_pk() -> Mapped[uuid.UUID]:
@@ -305,3 +310,49 @@ class DigestItem(Base):
         ForeignKey("items.id", ondelete="RESTRICT"),
         primary_key=True,
     )
+
+
+class Proposal(Base):
+    """A change waiting for the owner's decision (ADR 0009, decisions 2 and 6).
+
+    Never deleted, and only `status` and `decided_at` can change after
+    insert: a trigger in migration 0004 enforces both, and the allowed status
+    moves. `payload_hash` is app.proposals.payload_hash(payload).
+    """
+
+    __tablename__ = "proposals"
+    __table_args__ = (
+        CheckConstraint(one_of("kind", PROPOSAL_KINDS), name="kind"),
+        CheckConstraint(one_of("status", PROPOSAL_STATUSES), name="status"),
+        CheckConstraint(f"payload_hash ~ '{HASH_PATTERN}'", name="payload_hash"),
+        CheckConstraint("jsonb_typeof(payload) = 'object'", name="payload_object"),
+        CheckConstraint(
+            f"(decided_at IS NOT NULL) = ({one_of('status', DECIDED_STATUSES)})",
+            name="decided",
+        ),
+        Index(None, "item_id", "status"),
+        Index(None, "status", "expires_at"),
+    )
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    kind: Mapped[str] = mapped_column(Text)
+    # The item the change applies to
+    item_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("items.id", ondelete="RESTRICT"),
+    )
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    payload_hash: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, server_default=text("'pending'"))
+    # The email and extraction run the change was detected in
+    message_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("messages.id", ondelete="RESTRICT"),
+    )
+    extraction_run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("extraction_runs.id", ondelete="RESTRICT"),
+    )
+    # SINAN_PROPOSAL_TTL_DAYS after creation, or the due time if sooner
+    expires_at: Mapped[datetime] = mapped_column(UTC_TS)
+    # When the owner approved or rejected it
+    decided_at: Mapped[datetime | None] = mapped_column(UTC_TS)
+    created_at: Mapped[datetime] = created_at()
+    updated_at: Mapped[datetime] = updated_at()
