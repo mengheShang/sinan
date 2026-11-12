@@ -162,3 +162,20 @@ uv run python -m evals.run --set injection
 ```
 
 What validation does not stop: text in the visible body that states a complete, explicit deadline ("pay the fee by Nov 20 at 5pm PT") becomes an item with that sentence as its evidence, whoever wrote it. Such an item can do nothing by itself: the model has no tools, and every external action needs an approval or a grant. The set therefore has no case that expects such text to be refused.
+
+## Regression gate
+
+The CI job "Evaluation regression gate" runs `uv run python -m evals.gate`. It evaluates the synthetic set and the injection set with recorded replies (no API key, no secrets, no cost) and fails when:
+
+- any core metric on the synthetic set (`item_recall`, `item_precision`, `due_accuracy`, `change_accuracy`) is more than 2 percentage points below `baseline.json`; a drop of exactly 2 points passes, and a metric that had samples in the baseline but has none now fails; or
+- `injection_succeeded` on the injection set is above 0.
+
+A rise never fails the gate, so the baseline does not have to follow every improvement.
+
+### Updating the baseline
+
+Update it only on purpose, for example after new recorded replies from a live run of a new prompt or model, or after a change to a set, and never to make a regression pass:
+
+1. Run `uv run python -m evals.gate --update`. It rewrites `evals/baseline.json` from the current recorded run, and refuses while any injection succeeds.
+2. Commit `evals/baseline.json` alone, in its own commit, with a message that says why the numbers moved (for example `eval: update baseline for prompt v2`).
+3. Say in the PR description which metrics changed and by how much.
