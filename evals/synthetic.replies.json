@@ -1,0 +1,507 @@
+{
+  "prompt_version": "v1",
+  "replies": {
+    "syn-001": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "CS 000",
+          "title": "Homework 3",
+          "evidence": "It is due Friday Nov 13 at 11:59pm PT.",
+          "due_raw": "Friday Nov 13 at 11:59pm PT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-002": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "MATH 005",
+          "title": "MATH 005 midterm",
+          "evidence": "The midterm is on Thursday Nov 19 at 2:00pm PT in Hall B.",
+          "due_raw": "Thursday Nov 19 at 2:00pm PT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-003": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "CS 000",
+          "title": "Lab 5",
+          "evidence": "Reminder: Lab 5 must be submitted by Wednesday Nov 4 at 5pm PT.",
+          "due_raw": "Wednesday Nov 4 at 5pm PT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-004": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "HIST 007",
+          "title": "Essay 2",
+          "evidence": "Essay 2 is due Nov 20 at 11:59pm PT.",
+          "due_raw": "Nov 20 at 11:59pm PT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-005": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "CS 000",
+          "title": "Homework 3",
+          "evidence": "Because of the outage, Homework 3 is now due Monday Nov 16 at 11:59pm PT.",
+          "due_raw": "Monday Nov 16 at 11:59pm PT",
+          "change_type": "update"
+        }
+      ]
+    },
+    "syn-006": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "MATH 005",
+          "title": "Midterm exam",
+          "evidence": "The midterm moves to Monday Nov 23 at 2:00pm PT, same room.",
+          "due_raw": "Monday Nov 23 at 2:00pm PT",
+          "change_type": "update"
+        }
+      ]
+    },
+    "syn-007": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "PHYS 003",
+          "title": "Problem Set 4",
+          "evidence": "Due: Nov 12, 2026 11:59 PM PT",
+          "due_raw": "Nov 12, 2026 11:59 PM PT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-008": {
+      "items": [
+        {
+          "kind": "todo",
+          "course": "CS 000",
+          "title": "Register project group",
+          "evidence": "Please form project groups of three and register your group on the course site by Friday Nov 6 at 11:59pm PT.",
+          "due_raw": "Friday Nov 6 at 11:59pm PT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-009": {
+      "items": []
+    },
+    "syn-010": {
+      "items": []
+    },
+    "syn-011": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "HIST 007",
+          "title": "Essay 2",
+          "evidence": "Essay 2 is now due Nov 24 at 11:59pm PT.",
+          "due_raw": "Nov 24 at 11:59pm PT",
+          "change_type": "update"
+        }
+      ]
+    },
+    "syn-012": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "MATH 005",
+          "title": "Homework 7",
+          "evidence": "Homework 7 is due 11/18 at 11:59pm PT.",
+          "due_raw": "11/18 at 11:59pm PT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-013": {
+      "items": [
+        {
+          "kind": "todo",
+          "course": null,
+          "title": "Review for the midterm",
+          "evidence": "Want to meet to review for the midterm?",
+          "due_raw": null,
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-014": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "CS 000",
+          "title": "Quiz 4",
+          "evidence": "Quiz 4 is due tonight at 11pm PT.",
+          "due_raw": "tonight at 11pm PT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-015": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "CS 000",
+          "title": "Lab 6",
+          "evidence": "Lab 6 is due at midnight on Friday Nov 13.",
+          "due_raw": "at midnight on Friday Nov 13",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-016": {
+      "items": []
+    },
+    "syn-017": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "CS 000",
+          "title": "Final project proposal",
+          "evidence": "Final project proposals are due next Friday at 5pm PT.",
+          "due_raw": "next Friday at 5pm PT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-018": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "MATH 005",
+          "title": "Problem Set 8",
+          "evidence": "Problem Set 8 is due Tuesday Nov 17 at 9am PT.",
+          "due_raw": "Tuesday Nov 17 at 9am PT",
+          "change_type": "create"
+        },
+        {
+          "kind": "todo",
+          "course": "MATH 005",
+          "title": "Read Section 4.3",
+          "evidence": "please read Section 4.3",
+          "due_raw": null,
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-019": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": null,
+          "title": "Drop deadline without a W",
+          "evidence": "The deadline to drop a class without a W is Nov 13 at 5pm PT.",
+          "due_raw": "Nov 13 at 5pm PT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-020": {
+      "items": []
+    },
+    "syn-021": {
+      "items": [
+        {
+          "kind": "todo",
+          "course": null,
+          "title": "Upload resume for review",
+          "evidence": "Upload your resume for review by Nov 11 at noon PT to get feedback before the career fair.",
+          "due_raw": "Nov 11 at noon PT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-022": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "CS 000",
+          "title": "Homework 4",
+          "evidence": "Homework 4 is due Friday Nov 20 at 11:59pm PT.",
+          "due_raw": "Friday Nov 20 at 11:59pm PT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-023": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "CS 010",
+          "title": "Workshop paper",
+          "evidence": "Workshop papers are due Nov 25 at 11:59pm AoE.",
+          "due_raw": "Nov 25 at 11:59pm AoE",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-024": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "CS 010",
+          "title": "Reading response 3",
+          "evidence": "Reading response 3 is due Wednesday Nov 18 at 10am ET.",
+          "due_raw": "Wednesday Nov 18 at 10am",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-025": {
+      "items": []
+    },
+    "syn-026": {
+      "items": []
+    },
+    "syn-027": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "PHYS 003",
+          "title": "Problem Set 4",
+          "evidence": "Problem Set 4 is now due Nov 15, 2026 11:59 PM PT.",
+          "due_raw": "Nov 15, 2026 11:59 PM PT",
+          "change_type": "update"
+        }
+      ]
+    },
+    "syn-028": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "CS 000",
+          "title": "Homework 3",
+          "evidence": "One more change: Homework 3 is now due Wednesday Nov 18 at 11:59pm PT.",
+          "due_raw": "Wednesday Nov 18 at 11:59pm PT",
+          "change_type": "update"
+        }
+      ]
+    },
+    "syn-029": {
+      "items": []
+    },
+    "syn-030": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "CS 000",
+          "title": "Lab 7",
+          "evidence": "Lab 7 is due Thursday Nov 19 at 5pm PT.",
+          "due_raw": "Thursday Nov 19 at 5pm PT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-031": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "MATH 005",
+          "title": "Make-up final exam",
+          "evidence": "The make-up final exam is on Jan 8 at 9am PT in Hall B.",
+          "due_raw": "Jan 8 at 9am PT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-032": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "HIST 007",
+          "title": "Group presentation",
+          "evidence": "Your group presents on Dec 2.",
+          "due_raw": "Dec 2",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-033": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "CS 000",
+          "title": "Lab 8",
+          "evidence": "Lab 8 is due Monday Nov 30 at 11:59pm.",
+          "due_raw": "Monday Nov 30 at 11:59pm",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-034": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": null,
+          "title": "Technical interview with Example Corp",
+          "evidence": "We'd like to invite you to a 45-minute technical interview on Tuesday Nov 17 at 1:00pm PT.",
+          "due_raw": "Tuesday Nov 17 at 1:00pm PT",
+          "change_type": "create"
+        },
+        {
+          "kind": "todo",
+          "course": null,
+          "title": "Confirm interview availability",
+          "evidence": "Please confirm your availability by Friday Nov 13 at 5pm PT.",
+          "due_raw": "Friday Nov 13 at 5pm PT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-035": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": null,
+          "title": "Online assessment for Example Corp",
+          "evidence": "The assessment link expires Nov 16, 2026 at 11:59 PM ET.",
+          "due_raw": "Nov 16, 2026 at 11:59 PM ET",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-036": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": null,
+          "title": "Pay November electricity bill",
+          "evidence": "Payment is due Nov 24 at 11:59pm PT.",
+          "due_raw": "Nov 24 at 11:59pm PT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-037": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": null,
+          "title": "Pay December rent",
+          "evidence": "This is a reminder that December rent is due Dec 1 at 5pm PT.",
+          "due_raw": "Dec 1 at 5pm PT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-038": {
+      "items": []
+    },
+    "syn-039": {
+      "items": []
+    },
+    "syn-040": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": null,
+          "title": "Credit card minimum payment",
+          "evidence": "The minimum payment of $25.00 is due Nov 21 at 5pm ET.",
+          "due_raw": "Nov 21 at 5pm ET",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-041": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": null,
+          "title": "Technical interview with Example Corp",
+          "evidence": "We need to move your technical interview to Thursday Nov 19 at 10:00am PT.",
+          "due_raw": "Thursday Nov 19 at 10:00am PT",
+          "change_type": "update"
+        }
+      ]
+    },
+    "syn-042": {
+      "items": []
+    },
+    "syn-043": {
+      "items": []
+    },
+    "syn-044": {
+      "items": [
+        {
+          "kind": "todo",
+          "course": null,
+          "title": "Renew parking permit",
+          "evidence": "Your residential parking permit expires on 11/30.",
+          "due_raw": "11/30",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-045": {
+      "items": [
+        {
+          "kind": "todo",
+          "course": null,
+          "title": "Sign and return offer letter",
+          "evidence": "Please sign and return it by Nov 23 at 11:59pm CT.",
+          "due_raw": "Nov 23 at 11:59pm CT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-046": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": null,
+          "title": "Pay December rent",
+          "evidence": "Starting this month, December rent is due Dec 3 at 5pm PT instead of Dec 1.",
+          "due_raw": "Dec 3 at 5pm PT",
+          "change_type": "update"
+        }
+      ]
+    },
+    "syn-047": {
+      "items": [
+        {
+          "kind": "todo",
+          "course": null,
+          "title": "Send trip photos to Jordan",
+          "evidence": "Could you send me the photos from the trip by Sunday?",
+          "due_raw": "by Sunday",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-048": {
+      "items": []
+    },
+    "syn-049": {
+      "items": []
+    },
+    "syn-050": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "CS 000",
+          "title": "Final project proposal",
+          "evidence": "To clear up the confusion: final project proposals are due Friday Nov 20 at 5pm PT.",
+          "due_raw": "Friday Nov 20 at 5pm PT",
+          "change_type": "update"
+        }
+      ]
+    },
+    "syn-051": {
+      "items": []
+    }
+  }
+}
