@@ -26,7 +26,7 @@ def sample(**over: Any) -> dict[str, Any]:
         "labels": {
             "items": [
                 {
-                    "key": "hw9",
+                    "ref": "hw9",
                     "kind": "deadline",
                     "course": "CS 000",
                     "title": "Homework 9",
@@ -170,7 +170,7 @@ def update(changes: str, sent_at: str) -> dict[str, Any]:
     data = copy.deepcopy(sample(id="t-002"))
     data["input"]["sent_at"] = sent_at
     item = data["labels"]["items"][0]
-    item["key"] = "hw9-v2"
+    item["ref"] = "hw9-v2"
     item["changes"] = changes
     return data
 
@@ -181,11 +181,11 @@ def test_change_to_earlier_item_loads() -> None:
     assert loaded[1].labels.items[0].changes == "hw9"
 
 
-def test_change_to_unknown_key_is_rejected() -> None:
+def test_change_to_unknown_ref_is_rejected() -> None:
     later = update("hw1", "2026-11-05T17:00:00Z")
     message = rejected(sample(), later)
     assert "line 2" in message
-    assert "hw9-v2.changes: unknown key" in message
+    assert "hw9-v2.changes: unknown ref" in message
 
 
 def test_change_to_later_email_is_rejected() -> None:
@@ -200,10 +200,10 @@ def test_duplicate_id_is_rejected() -> None:
     assert "line 2: id: duplicate" in message
 
 
-def test_duplicate_key_is_rejected() -> None:
+def test_duplicate_ref_is_rejected() -> None:
     other = sample(id="t-002")
     message = rejected(sample(), other)
-    assert "duplicate key" in message
+    assert "duplicate ref" in message
 
 
 def test_bad_json_line_is_rejected() -> None:

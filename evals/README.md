@@ -26,7 +26,7 @@ JSON Lines: one email per line, as one JSON object. Shown here across several li
   "labels": {
     "items": [
       {
-        "key": "cs000-hw3-v2",
+        "ref": "cs000-hw3-v2",
         "kind": "deadline",
         "course": "CS 000",
         "title": "Homework 3",
@@ -61,14 +61,14 @@ Exactly what the prefilter and the extractor see of the email, and nothing else.
 
 | Field | Meaning |
 | --- | --- |
-| `key` | A name for the item, unique in the set (lowercase letters, digits and `-`). Later items refer to it. |
+| `ref` | A name for the item, unique in the set (lowercase letters, digits and `-`). Later items refer to it. |
 | `kind` | `deadline` or `todo`. |
 | `course` | Course code, or `null` when the item is not about a course. |
 | `title` | Short title. |
 | `due_raw` | The due-time phrase as written in the email, or `null` if there is none. It must appear in the subject or body. |
 | `due_at` | The correct due time in UTC, ending in `Z`, or `null`. |
 | `due_ambiguous` | `true` when the email gives a due time that a correct system must not guess and should mark `needs_review`. |
-| `changes` | `null` for a new item. For an item that changes an earlier one (an extension, a moved exam), the `key` of the item it changes. |
+| `changes` | `null` for a new item. For an item that changes an earlier one (an extension, a moved exam), the `ref` of the item it changes. |
 
 `safe_to_auto_read` (required for every email) is `true` when the email could be marked read automatically without the owner missing anything. It is used only in M3 and is labeled now to avoid a second pass (ADR 0009, decision 1).
 
@@ -82,8 +82,8 @@ Exactly what the prefilter and the extractor see of the email, and nothing else.
   - no `due_raw` means `due_at` is `null` and `due_ambiguous` is `false`;
   - a `due_raw` with a `due_at` has `due_ambiguous` set to `false`;
   - a `due_raw` with `due_at` set to `null` has `due_ambiguous` set to `true`.
-- Ids and item keys are unique in the set.
-- `changes` names a key from an email with an earlier `sent_at`.
+- Ids and item refs are unique in the set.
+- `changes` names a ref from an email with an earlier `sent_at`.
 
 ## Labeling notes
 

@@ -41,7 +41,7 @@ def utc_text(value: object) -> object:
 
 # Lax parsing only here: the text is already known to be a string ending in Z
 UtcTime = Annotated[datetime, Field(strict=False), BeforeValidator(utc_text)]
-Key = Annotated[str, Field(pattern=KEY_PATTERN)]
+Ref = Annotated[str, Field(pattern=KEY_PATTERN)]
 
 
 class Strict(BaseModel):
@@ -69,14 +69,14 @@ class Snapshot(Strict):
 
 
 class ItemLabel(Strict):
-    key: Key
+    ref: Ref
     kind: Literal["deadline", "todo"]
     course: str | None = Field(max_length=50)
     title: str = Field(min_length=1, max_length=200)
     due_raw: str | None = Field(min_length=1, max_length=200)
     due_at: UtcTime | None
     due_ambiguous: bool
-    changes: Key | None
+    changes: Ref | None
 
     @model_validator(mode="after")
     def due_fields_agree(self) -> "ItemLabel":
@@ -101,17 +101,17 @@ def squash(text: str) -> str:
 
 
 class Sample(Strict):
-    id: Key
+    id: Ref
     input: Snapshot
     labels: Labels
-    tags: list[Key] = []
+    tags: list[Ref] = []
 
     @model_validator(mode="after")
     def due_raw_in_email(self) -> "Sample":
         text = squash(self.input.subject + "\n" + self.input.body_text)
         for item in self.labels.items:
             if item.due_raw is not None and squash(item.due_raw) not in text:
-                raise ValueError(f"{item.key}: due_raw must appear in the subject or body")
+                raise ValueError(f"{item.ref}: due_raw must appear in the subject or body")
         return self
 
     @property
@@ -136,7 +136,7 @@ def parse_line(number: int, line: str) -> Sample:
 
 
 def check_links(samples: list[Sample], lines: list[int]) -> None:
-    """Ids and keys are unique, and `changes` points to an item from an earlier email."""
+    """Ids and refs are unique, and `changes` points to an item from an earlier email."""
     ids: set[str] = set()
     sent: dict[str, datetime] = {}
     for sample, number in zip(samples, lines, strict=True):
@@ -144,18 +144,18 @@ def check_links(samples: list[Sample], lines: list[int]) -> None:
             raise SetError(f"line {number}: id: duplicate")
         ids.add(sample.id)
         for item in sample.labels.items:
-            if item.key in sent:
-                raise SetError(f"line {number}: labels.items.{item.key}: duplicate key")
-            sent[item.key] = sample.input.sent_at
+            if item.ref in sent:
+                raise SetError(f"line {number}: labels.items.{item.ref}: duplicate ref")
+            sent[item.ref] = sample.input.sent_at
     for sample, number in zip(samples, lines, strict=True):
         for item in sample.labels.items:
             if item.changes is None:
                 continue
             target = sent.get(item.changes)
             if target is None:
-                raise SetError(f"line {number}: {item.key}.changes: unknown key")
+                raise SetError(f"line {number}: {item.ref}.changes: unknown ref")
             if target >= sample.input.sent_at:
-                raise SetError(f"line {number}: {item.key}.changes: must be an earlier email")
+                raise SetError(f"line {number}: {item.ref}.changes: must be an earlier email")
 
 
 def load_lines(lines: Iterable[str]) -> list[Sample]:
