@@ -5,6 +5,9 @@ labeled. `add` stores a new labeled row, `correct` retires a row and stores
 its replacement with the same snapshot, and `retire` takes a row out of its
 set. None of them edits a stored row; the database enforces that too.
 
+`set_version` says which sampling draw a row belongs to. It is bumped when a
+set is redrawn, and a correction keeps the old row's version.
+
 Reading: `load_set` reads only `eval_labels`, never `messages`, and returns
 samples in the format of evals/README.md, checked by evals/dataset.py.
 

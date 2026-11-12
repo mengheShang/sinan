@@ -407,6 +407,8 @@ class EvalLabel(Base):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     eval_set: Mapped[str] = mapped_column(Text)
+    # Which sampling draw the row belongs to: bumped when a set is redrawn,
+    # kept by a correction
     set_version: Mapped[int] = mapped_column(Integer)
     # messages.id of the email the snapshot was copied from. For reference
     # only: no foreign key, so the label outlives the message
