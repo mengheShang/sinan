@@ -77,6 +77,8 @@ def upgrade() -> None:
         ),
         sa.Column("kind", sa.Text(), nullable=False),
         sa.Column("item_id", sa.Uuid(), nullable=False),
+        # The item_versions.version the change was based on
+        sa.Column("base_version", sa.Integer(), nullable=False),
         sa.Column("payload", postgresql.JSONB(), nullable=False),
         sa.Column("payload_hash", sa.Text(), nullable=False),
         sa.Column(
@@ -106,6 +108,7 @@ def upgrade() -> None:
             "status IN ('pending', 'approved', 'rejected', 'expired', 'superseded', 'executed')",
             name="ck_proposals_status",
         ),
+        sa.CheckConstraint("base_version >= 1", name="ck_proposals_base_version"),
         sa.CheckConstraint(
             "payload_hash ~ '^[0-9a-f]{64}$'",
             name="ck_proposals_payload_hash",

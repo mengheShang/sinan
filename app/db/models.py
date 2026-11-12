@@ -333,6 +333,7 @@ class Proposal(Base):
     __table_args__ = (
         CheckConstraint(one_of("kind", PROPOSAL_KINDS), name="kind"),
         CheckConstraint(one_of("status", PROPOSAL_STATUSES), name="status"),
+        CheckConstraint("base_version >= 1", name="base_version"),
         CheckConstraint(f"payload_hash ~ '{HASH_PATTERN}'", name="payload_hash"),
         CheckConstraint("jsonb_typeof(payload) = 'object'", name="payload_object"),
         CheckConstraint(
@@ -349,6 +350,11 @@ class Proposal(Base):
     item_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("items.id", ondelete="RESTRICT"),
     )
+    # The item_versions.version the change was based on. A newer version of
+    # the item supersedes the proposal (ADR 0009, decision 6). Not part of
+    # the payload, so payload_hash does not cover it; the trigger keeps it
+    # fixed instead.
+    base_version: Mapped[int] = mapped_column(Integer)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
     payload_hash: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, server_default=text("'pending'"))
