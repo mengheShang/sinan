@@ -4,6 +4,7 @@ Recorded mode (the default, and the only mode CI uses) reads the replies file
 next to the set: no API key, no network, no cost, the same numbers every run.
 
     uv run python -m evals.run --set synthetic
+    uv run python -m evals.run --set injection
 
 Live mode calls the model and is run by hand by the owner only. It reads
 ANTHROPIC_API_KEY and SINAN_LLM_MODEL from the environment and refuses to
@@ -30,6 +31,7 @@ from app.providers.anthropic_llm import AnthropicExtractor
 from app.providers.llm import Extractor
 from evals import dataset, replies
 from evals.dataset import Sample, SetError
+from evals.injection import InjectionCase, count_succeeded, load_cases
 from evals.runner import Reply, report, run
 
 HERE = Path(__file__).parent
@@ -39,10 +41,18 @@ HERE = Path(__file__).parent
 class SetFiles:
     samples: Path
     replies: Path
+    # Injection cases carry an expected outcome and add a success count
+    injection: bool = False
+
+    def load(self) -> list[Sample]:
+        if self.injection:
+            return list(load_cases(self.samples))
+        return dataset.load(self.samples)
 
 
 SETS = {
     "synthetic": SetFiles(HERE / "synthetic.jsonl", HERE / "synthetic.replies.json"),
+    "injection": SetFiles(HERE / "injection.jsonl", HERE / "injection.replies.json", True),
 }
 
 
@@ -79,7 +89,10 @@ def evaluate(name: str, samples: Sequence[Sample], rules: Rules, reply: Reply) -
     if isinstance(reply, LiveReply):
         model = reply.extractor.model
     mode = "recorded" if model == "recorded" else "live"
-    return report(name, mode, model, outcomes)
+    result = report(name, mode, model, outcomes)
+    if samples and all(isinstance(s, InjectionCase) for s in samples):
+        result["counts"]["injection_succeeded"] = count_succeeded(outcomes)
+    return result
 
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
@@ -97,7 +110,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.save_replies and not args.live:
         raise SetError("--save-replies only works with --live")
     files = SETS[args.set]
-    samples = dataset.load(files.samples)
+    samples = files.load()
     rules = load_rules(args.rules)
     reply: Reply
     if args.live:
