@@ -29,7 +29,7 @@ This replaces ADR 0007 decision 2 (`unmatched_update`) once matching lands.
 
 A labeling page shows one email at a time with a form for the fields in decision 1. Labeling in the Dashboard is faster than editing files by hand.
 
-Labels are stored in a new table in the live database (`sinan`), which lives in the Docker volume and never in the repository. Each labeled row keeps a frozen input snapshot: a copy, taken when the email is labeled, of exactly the fields the extractor sees (sender, subject, body text, email date and account role), together with the labels, the set it belongs to (`dev` or `test`) and a set version.
+Labels are stored in a new table in the live database (`sinan`), which lives in the Docker volume and never in the repository. Each labeled row keeps a frozen input snapshot: a copy, taken when the email is labeled, of exactly the fields the extractor sees (sender, subject, body text, email date and account role), plus the two headers the prefilter's bulk check reads (`List-Unsubscribe` and `Precedence`, added on 2026-11-11 so prefilter recall can be measured on the snapshot), together with the labels, the set it belongs to (`dev` or `test`) and a set version.
 
 The evaluation reads only these snapshots, never `messages`. A later re-sync or a change to body parsing therefore cannot change the inputs, and the same snapshot with the same prompt and model gives the same metrics. Without the snapshot, a changed score could come from changed inputs rather than from the prompt or model.
 
