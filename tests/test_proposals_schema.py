@@ -65,6 +65,7 @@ def values(conn: Connection, **changes: Any) -> dict[str, Any]:
     row = {
         **sources(conn),
         "kind": "item_update",
+        "base_version": 1,
         "payload": PAYLOAD,
         "payload_hash": payload_hash(PAYLOAD),
         "expires_at": NOW + timedelta(days=7),
@@ -109,6 +110,16 @@ def test_status_is_checked(conn: Connection) -> None:
 @pytest.mark.parametrize("bad", ["not-a-hash", "A" * 64, "0" * 63, "0" * 65])
 def test_hash_must_be_sha256_hex(conn: Connection, bad: str) -> None:
     fails(conn, sa.insert(Proposal).values(**values(conn, payload_hash=bad)))
+
+
+def test_base_version_is_required(conn: Connection) -> None:
+    fails(conn, sa.insert(Proposal).values(**values(conn, base_version=None)))
+
+
+@pytest.mark.parametrize("bad", [0, -1])
+def test_base_version_starts_at_one(conn: Connection, bad: int) -> None:
+    fails(conn, sa.insert(Proposal).values(**values(conn, base_version=bad)))
+    new_proposal(conn, base_version=3)
 
 
 def test_payload_must_be_an_object(conn: Connection) -> None:
@@ -192,6 +203,7 @@ def test_decision_time_is_fixed_once_set(conn: Connection) -> None:
     [
         {"payload": {"due_at": "2026-12-01T07:59:00Z", "title": "Homework 3"}},
         {"payload_hash": "f" * 64},
+        {"base_version": 2},
         {"kind": "item_update", "expires_at": NOW + timedelta(days=30)},
         {"created_at": NOW},
     ],
@@ -226,3 +238,5 @@ def test_downgrade_then_upgrade(engine: Engine, db_url: str) -> None:
     command.upgrade(cfg, "head")
     inspector = sa.inspect(engine)
     assert "proposals" in inspector.get_table_names()
+    columns = {c["name"]: c for c in inspector.get_columns("proposals")}
+    assert columns["base_version"]["nullable"] is False
