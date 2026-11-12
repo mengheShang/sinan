@@ -1,0 +1,179 @@
+"""Metrics on hand-made labeled and found items, including empty sets."""
+
+from datetime import UTC, datetime
+
+from evals.dataset import ItemLabel
+from evals.metrics import Email, Found, Ratio, match_email, overlap, score
+
+DUE = datetime(2026, 11, 14, 7, 59, tzinfo=UTC)
+OTHER = datetime(2026, 11, 15, 7, 59, tzinfo=UTC)
+
+
+def label(
+    ref: str,
+    title: str,
+    due: datetime | None = DUE,
+    ambiguous: bool = False,
+    changes: str | None = None,
+    course: str | None = "CS 000",
+) -> ItemLabel:
+    raw = "Friday" if due is not None or ambiguous else None
+    # The label format takes UTC times as text ending in Z
+    due_text = due.strftime("%Y-%m-%dT%H:%M:%SZ") if due else None
+    data = {
+        "ref": ref,
+        "kind": "deadline",
+        "course": course,
+        "title": title,
+        "due_raw": raw,
+        "due_at": due_text,
+        "due_ambiguous": ambiguous,
+        "changes": changes,
+    }
+    return ItemLabel.model_validate(data)
+
+
+def found(
+    uid: str,
+    title: str,
+    due: datetime | None = DUE,
+    status: str = "open",
+    target: str | None = None,
+    course: str | None = "CS 000",
+) -> Found:
+    return Found(uid, course, title, due, status, target)
+
+
+def test_ratio_of_nothing_is_none() -> None:
+    assert Ratio(0, 0).value is None
+    assert Ratio(1, 4).value == 0.25
+
+
+def test_empty_set_divides_by_nothing() -> None:
+    scores = score([])
+    assert scores.emails == 0
+    assert scores.recall.value is None
+    assert scores.precision.value is None
+    assert scores.due_accuracy.value is None
+    assert scores.change_accuracy.value is None
+
+
+def test_emails_without_items() -> None:
+    scores = score([Email([], []), Email([], [])])
+    assert scores.emails == 2
+    assert scores.recall == Ratio(0, 0)
+    assert scores.precision == Ratio(0, 0)
+    assert scores.due_accuracy == Ratio(0, 0)
+
+
+def test_nothing_found() -> None:
+    scores = score([Email([label("a", "Homework 3")], [])])
+    assert scores.recall == Ratio(0, 1)
+    assert scores.precision == Ratio(0, 0)
+    assert scores.due_accuracy == Ratio(0, 0)
+
+
+def test_nothing_labeled() -> None:
+    scores = score([Email([], [found("x", "Homework 3")])])
+    assert scores.recall == Ratio(0, 0)
+    assert scores.precision == Ratio(0, 1)
+
+
+def test_recall_and_precision() -> None:
+    labels = [label("a", "Homework 3"), label("b", "Lab 5")]
+    items = [found("x", "Homework 3"), found("y", "Read the notes")]
+    scores = score([Email(labels, items)])
+    assert scores.matched == 1
+    assert scores.recall == Ratio(1, 2)
+    assert scores.precision == Ratio(1, 2)
+
+
+def test_items_only_match_in_their_own_email() -> None:
+    first = Email([label("a", "Homework 3")], [])
+    second = Email([], [found("x", "Homework 3")])
+    scores = score([first, second])
+    assert scores.matched == 0
+
+
+def test_overlap_of_titles() -> None:
+    assert overlap("Midterm exam", "Midterm") == 0.5
+    assert overlap("Homework 3", "homework #3") == 1.0
+    assert overlap("Homework 3", "Lab 5") == 0.0
+    assert overlap("", "Lab 5") == 0.0
+
+
+def test_course_words_do_not_count() -> None:
+    labels = [label("a", "Midterm exam", course="MATH 005")]
+    items = [found("x", "MATH 005 midterm", course=None)]
+    assert len(match_email(Email(labels, items))) == 1
+
+
+def test_title_that_is_only_the_course_matches_nothing() -> None:
+    labels = [label("a", "CS 000")]
+    items = [found("x", "CS 000")]
+    assert match_email(Email(labels, items)) == []
+
+
+def test_each_item_is_used_once_best_first() -> None:
+    labels = [label("a", "Problem Set 4"), label("b", "Problem Set 4 reading")]
+    items = [found("x", "Problem Set 4 reading")]
+    pairs = match_email(Email(labels, items))
+    assert [(lab.ref, item.uid) for lab, item in pairs] == [("b", "x")]
+
+
+def test_due_accuracy() -> None:
+    labels = [label("a", "Homework 3"), label("b", "Lab 5")]
+    items = [found("x", "Homework 3"), found("y", "Lab 5", due=OTHER)]
+    scores = score([Email(labels, items)])
+    assert scores.due_accuracy == Ratio(1, 2)
+
+
+def test_ambiguous_due_must_need_review() -> None:
+    labels = [
+        label("a", "Homework 3", due=None, ambiguous=True),
+        label("b", "Lab 5", due=None, ambiguous=True),
+        label("c", "Lab 6", due=None, ambiguous=True),
+    ]
+    items = [
+        found("x", "Homework 3", due=None, status="needs_review"),
+        found("y", "Lab 5", due=None, status="open"),
+        found("z", "Lab 6", due=DUE, status="open"),
+    ]
+    scores = score([Email(labels, items)])
+    assert scores.due_accuracy == Ratio(1, 3)
+
+
+def test_no_due_time_must_find_none() -> None:
+    labels = [label("a", "Read chapter 8", due=None), label("b", "Read chapter 9", due=None)]
+    items = [found("x", "Read chapter 8", due=None), found("y", "Read chapter 9")]
+    scores = score([Email(labels, items)])
+    assert scores.due_accuracy == Ratio(1, 2)
+
+
+def test_change_linked_to_the_right_item() -> None:
+    first = Email([label("hw3", "Homework 3")], [found("x", "Homework 3")])
+    changed = label("hw3-v2", "Homework 3", due=OTHER, changes="hw3")
+    second = Email([changed], [found("y", "Homework 3", due=OTHER, target="x")])
+    scores = score([first, second])
+    assert scores.change_accuracy == Ratio(1, 1)
+
+
+def test_change_linked_to_the_wrong_item_or_not_at_all() -> None:
+    first = Email(
+        [label("hw3", "Homework 3"), label("lab5", "Lab 5")],
+        [found("x", "Homework 3"), found("w", "Lab 5")],
+    )
+    wrong = Email(
+        [label("hw3-v2", "Homework 3", changes="hw3")],
+        [found("y", "Homework 3", target="w")],
+    )
+    unlinked = Email([label("lab5-v2", "Lab 5", changes="lab5")], [found("z", "Lab 5")])
+    scores = score([first, wrong, unlinked])
+    assert scores.change_accuracy == Ratio(0, 2)
+
+
+def test_missed_change_counts_as_wrong() -> None:
+    first = Email([label("hw3", "Homework 3")], [found("x", "Homework 3")])
+    second = Email([label("hw3-v2", "Homework 3", changes="hw3")], [])
+    scores = score([first, second])
+    assert scores.change_accuracy == Ratio(0, 1)
