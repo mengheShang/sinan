@@ -131,6 +131,14 @@ PARSED_ADR_0011 = [
     ("by 5pm PT on Saturday 14 November", SENT, utc(2026, 11, 15, 1, 0)),
     ("due 23:59 November 14 PT", SENT, utc(2026, 11, 15, 7, 59)),
     ("5 Jan 11:59pm PT", utc(2026, 12, 20, 18, 0), utc(2027, 1, 6, 7, 59)),
+    # Only "May" needs its capital; other day-first months ignore case
+    ("14 May 2027 5pm PT", SENT, utc(2027, 5, 15, 0, 0)),
+    ("14 MAY 2027 5pm PT", SENT, utc(2027, 5, 15, 0, 0)),
+    ("14 nov 5pm PT", SENT, utc(2026, 11, 15, 1, 0)),
+    # Lowercase "may" after a number is the verb, not a date
+    ("2 may be late, Nov 14 5pm PT", SENT, utc(2026, 11, 15, 1, 0)),
+    # Month-first "may" keeps ADR 0005 behavior and ignores case
+    ("may 14 5pm PT", SENT, utc(2027, 5, 15, 0, 0)),
     # "end of day" is 23:59 in the stated zone
     ("Nov 14 end of day PT", SENT, utc(2026, 11, 15, 7, 59)),
     ("Nov 14 by end of the day ET", SENT, utc(2026, 11, 15, 4, 59)),
@@ -182,8 +190,9 @@ NEEDS_REVIEW_ADR_0011 = [
     ("Nov 14 or 15 Nov 5pm PT", SENT, "multiple_dates"),
     ("31 Nov 5pm PT", SENT, "invalid_date"),
     ("29 Feb 2027 5pm PT", SENT, "invalid_date"),
-    # A number before "may" reads as a date and conflicts
-    ("2 may be late, Nov 14 5pm PT", SENT, "multiple_dates"),
+    # Day-first lowercase "may" is the verb, so there is no date
+    ("14 may 5pm PT", SENT, "no_date"),
+    ("14 may 2027 5pm PT", SENT, "no_date"),
     # China time only by full name; "CST" next to it is US Central
     ("Nov 14 5pm Beijing time (CST)", SENT, "multiple_zones"),
     ("Nov 14 5pm China time", SENT, "no_zone"),

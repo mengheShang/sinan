@@ -10,7 +10,8 @@ extended by ADR 0011):
 - A time is required. "noon" is 12:00; "end of day" (or "EOD") is 23:59 in
   the stated zone; "midnight" is ambiguous.
 - The date is a month name and day ("Nov 14", "November 14th, 2026"), a day
-  and month name ("14 November", "14 Nov 2026"), an ISO date, a weekday
+  and month name ("14 November", "14 Nov 2026"; day-first "May" needs its
+  capital, since "2 may be late" is the verb), an ISO date, a weekday
   ("Friday"), or today / tonight / tomorrow. Numeric dates such as 11/14
   always need review, because 11/12 has two readings.
 - A missing year is inferred from the email date: the one year that puts the
@@ -138,8 +139,9 @@ MONTH_RE = re.compile(MONTH + r"\s+" + DAY + NOT_HOUR + YEAR)
 # A day before a month is not right after ":", "-", "." or a digit, so the
 # "59" in "23:59 November 14" is not a day
 NOT_MINUTE = r"(?<![:\-.\d])"
-# "14 Nov", "14th November 2026"
-DAY_FIRST_RE = re.compile(NOT_MINUTE + DAY + r"\s+" + MONTH + YEAR)
+# "14 Nov", "14th November 2026". Matched on text that keeps its case, so
+# "May" can be told from the verb "may" (see day_first_dates)
+DAY_FIRST_RE = re.compile(NOT_MINUTE + DAY + r"\s+" + MONTH + YEAR, re.IGNORECASE)
 ISO_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
 NUMERIC_RE = re.compile(r"\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b")
 WEEKDAY_RE = re.compile(r"\b(?:(next|this)\s+)?(" + words(WEEKDAYS) + r")\.?(?=\s|$|\b)")
@@ -162,12 +164,16 @@ def review(reason: str) -> DueParse:
     return DueParse(None, reason)
 
 
-def normalize(text: str) -> str:
-    lowered = text.lower()
-    lowered = lowered.replace("a.m.", "am").replace("p.m.", "pm")
-    lowered = lowered.replace(",", " ")
+def tidy(text: str) -> str:
+    """Commas become spaces and spaces collapse; case is kept."""
+    spaced = text.replace(",", " ")
     # One space between words, so "beijing  time" matches "beijing time"
-    return " ".join(lowered.split())
+    return " ".join(spaced.split())
+
+
+def normalize(text: str) -> str:
+    lowered = tidy(text).lower()
+    return lowered.replace("a.m.", "am").replace("p.m.", "pm")
 
 
 def find_zone(text: str) -> Zone | str:
@@ -213,7 +219,24 @@ class DateParts:
     year: int | None
 
 
-def find_date(text: str) -> DateParts | str | None:
+def is_verb_may(month: str) -> bool:
+    """Lowercase "may" after a number is the verb: "2 may be late"."""
+    return month.lower() == "may" and month[0].islower()
+
+
+def day_first_dates(cased: str) -> set[DateParts]:
+    """Day-first dates in text that keeps its case (ADR 0011)."""
+    found: set[DateParts] = set()
+    for day_s, month_s, year_s in DAY_FIRST_RE.findall(cased):
+        if is_verb_may(month_s):
+            continue
+        year = int(year_s) if year_s else None
+        month = MONTHS[month_s.lower()]
+        found.add(DateParts(month, int(day_s), year))
+    return found
+
+
+def find_date(text: str, cased: str) -> DateParts | str | None:
     """A written date, a reason it needs review, or None when there is none."""
     if NUMERIC_RE.search(text):
         return "numeric_date"
@@ -221,9 +244,7 @@ def find_date(text: str) -> DateParts | str | None:
     for month_s, day_s, year_s in MONTH_RE.findall(text):
         year = int(year_s) if year_s else None
         found.add(DateParts(MONTHS[month_s], int(day_s), year))
-    for day_s, month_s, year_s in DAY_FIRST_RE.findall(text):
-        year = int(year_s) if year_s else None
-        found.add(DateParts(MONTHS[month_s], int(day_s), year))
+    found |= day_first_dates(cased)
     for year_s, month_s, day_s in ISO_RE.findall(text):
         found.add(DateParts(int(month_s), int(day_s), int(year_s)))
     if len(found) > 1:
@@ -257,10 +278,10 @@ def resolve_year(parts: DateParts, sent: date) -> date | str:
     return options[0]
 
 
-def find_day(text: str, sent: date) -> date | str:
+def find_day(text: str, cased: str, sent: date) -> date | str:
     weekdays = WEEKDAY_RE.findall(text)
     relative = set(RELATIVE_RE.findall(text))
-    written = find_date(text)
+    written = find_date(text, cased)
     if isinstance(written, str):
         return written
     if any(word == "next" for word, _ in weekdays):
@@ -312,6 +333,7 @@ def parse_due(due_raw: str, sent_at: datetime) -> DueParse:
     if sent_at.tzinfo is None:
         raise ValueError("sent_at must be timezone-aware")
     text = normalize(due_raw)
+    cased = tidy(due_raw)
     zone = find_zone(text)
     if isinstance(zone, str):
         return review(zone)
@@ -320,7 +342,7 @@ def parse_due(due_raw: str, sent_at: datetime) -> DueParse:
         return review(at)
     # Relative days count in the deadline's own time zone
     sent_local = sent_at.astimezone(zone.region).date()
-    day = find_day(text, sent_local)
+    day = find_day(text, cased, sent_local)
     if isinstance(day, str):
         return review(day)
     placed = place(day, at, zone)
