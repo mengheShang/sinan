@@ -141,7 +141,7 @@ A due time is correct when:
 - the label is ambiguous, and the found item has no time and is in `needs_review`;
 - the label has no due time, and the found item has none either.
 
-Until deadline-change matching exists (ADR 0009, Issue 6), the pipeline links no item to another, so `change_accuracy` is 0 by construction. A missed change counts as wrong.
+A found item that the model marks as an update is linked to an earlier found item by the production matcher (`app/items/matching.py`, Issue #38), over the items found so far in the run, oldest email first. A linked change becomes its item's newest found item, so the next change in a chain links to it, as the item's newest version would in the database. A missed change counts as wrong.
 
 ### Matching rule
 

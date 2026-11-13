@@ -12,6 +12,12 @@ Sections, over items that are open or need review:
 
 `digest_items` stores only which items were in which section. Reading a
 digest joins to `items`, so the Dashboard shows each item's current state.
+
+A digest also counts the proposals that expired unanswered since the
+previous digest (ADR 0009, decision 6): those whose expiry time falls after
+the previous digest and no later than this one. The Worker checks proposals
+right before making a digest, so the count and the needs_review section
+include them.
 """
 
 import uuid
@@ -20,11 +26,20 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Row, Select, select
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import Row, Select, func, select
+from sqlalchemy.dialects.postgresql import distinct_on, insert
 from sqlalchemy.orm import Session
 
-from app.db.models import Account, AuditEvent, Digest, DigestItem, Item, ItemVersion, Message
+from app.db.models import (
+    Account,
+    AuditEvent,
+    Digest,
+    DigestItem,
+    Item,
+    ItemVersion,
+    Message,
+    Proposal,
+)
 
 DUE_WINDOW = timedelta(days=7)
 ACTIVE = ("open", "needs_review")
@@ -65,6 +80,17 @@ def section_ids(
     }
 
 
+def expired_between(session: Session, since: datetime | None, until: datetime) -> int:
+    """Proposals that expired unanswered after `since`, up to `until`."""
+    query = select(func.count()).where(
+        Proposal.status == "expired",
+        Proposal.expires_at <= until,
+    )
+    if since is not None:
+        query = query.where(Proposal.expires_at > since)
+    return int(session.execute(query).scalar_one())
+
+
 def make_digest(
     session: Session, now: datetime, zone: ZoneInfo, hour: int, force: bool = False
 ) -> Digest | None:
@@ -88,6 +114,7 @@ def make_digest(
         for item_id in ids:
             session.add(DigestItem(digest_id=digest_id, section=section, item_id=item_id))
     counts = {name: len(ids) for name, ids in sections.items()}
+    counts["expired_proposals"] = expired_between(session, since, now)
     session.add(audit(digest_id, today, counts))
     session.commit()
     return session.get(Digest, digest_id)
@@ -132,15 +159,35 @@ class DigestView:
     generated_at: datetime
     since: datetime | None
     sections: dict[str, list[ItemView]]
+    # Proposals that expired unanswered since the previous digest
+    expired_proposals: int
+
+
+def newest(condition: Any) -> Any:
+    """Each item's newest version that meets `condition`, as a subquery."""
+    query = (
+        select(ItemVersion.item_id, ItemVersion.after, ItemVersion.evidence, ItemVersion.message_id)
+        .where(condition)
+        .ext(distinct_on(ItemVersion.item_id))
+        .order_by(ItemVersion.item_id, ItemVersion.version.desc())
+    )
+    return query.subquery()
 
 
 def item_query() -> Select[Any, Any, Any, Any, Any]:
-    """Items with their first version's evidence and source message."""
-    first = select(ItemVersion).where(ItemVersion.version == 1).subquery()
+    """Items with their latest review code, evidence and source message.
+
+    The review code comes from the newest version that sets one, and the
+    evidence and message from the newest version with evidence: the email
+    that created the item, or the one behind its latest change.
+    """
+    review = newest(ItemVersion.after.has_key("review"))
+    source = newest(ItemVersion.evidence.is_not(None))
     return (
-        select(Item, first.c.after, first.c.evidence, Message, Account.email)
-        .outerjoin(first, first.c.item_id == Item.id)
-        .outerjoin(Message, Message.id == first.c.message_id)
+        select(Item, review.c.after, source.c.evidence, Message, Account.email)
+        .outerjoin(review, review.c.item_id == Item.id)
+        .outerjoin(source, source.c.item_id == Item.id)
+        .outerjoin(Message, Message.id == source.c.message_id)
         .outerjoin(Account, Account.id == Message.account_id)
     )
 
@@ -188,7 +235,10 @@ def read_digest(session: Session, digest: Digest) -> DigestView:
         sections[section].append(views[item_id])
     for name in SECTIONS:
         sections[name].sort(key=order_key)
-    return DigestView(digest.id, digest.digest_date, digest.generated_at, digest.since, sections)
+    expired = expired_between(session, digest.since, digest.generated_at)
+    return DigestView(
+        digest.id, digest.digest_date, digest.generated_at, digest.since, sections, expired
+    )
 
 
 def list_items(session: Session, statuses: tuple[str, ...]) -> list[ItemView]:

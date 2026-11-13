@@ -16,6 +16,7 @@ from typing import Any
 from app.extraction.prefilter import Envelope, Rules, decide
 from app.extraction.prompt import PROMPT_VERSION
 from app.extraction.validate import Checked, ValidItem, check
+from app.items.matching import Known, match
 from evals.dataset import Sample
 from evals.metrics import Email, Found, Ratio, Scores, score
 
@@ -57,20 +58,61 @@ def run(samples: Sequence[Sample], rules: Rules, reply: Reply) -> list[Outcome]:
     return [process(sample, rules, reply) for sample in ordered]
 
 
-def found_of(outcome: Outcome) -> list[Found]:
+class Linker:
+    """Links each change to the earlier item it changes, as extraction does.
+
+    Uses the production matcher (app/items/matching.py) over the items found
+    so far. An item stands for one tracked item; a change linked to it
+    becomes that item's newest found item, so the next change in a chain
+    links to it. An update the matcher cannot place is kept as a new item,
+    as extraction saves it.
+    """
+
+    def __init__(self) -> None:
+        self.pool: list[Known[int]] = []
+        # Newest found uid of each tracked item, and the sample it came from
+        self.latest: list[str] = []
+        self.origin: list[str] = []
+
+    def add(self, uid: str, sample_id: str, item: ValidItem) -> None:
+        key = len(self.latest)
+        self.pool.append(Known(key, item.course, item.title))
+        self.latest.append(uid)
+        self.origin.append(sample_id)
+
+    def link(self, uid: str, sample_id: str, item: ValidItem) -> str | None:
+        """The uid this item changes, or None after adding it as a new item."""
+        if item.change_type == "update" and item.due_at is not None:
+            earlier = [k for k in self.pool if self.origin[k.key] != sample_id]
+            found = match(item.course, item.title, earlier)
+            if found.target is not None:
+                target = self.latest[found.target]
+                self.latest[found.target] = uid
+                return target
+        self.add(uid, sample_id, item)
+        return None
+
+
+def found_of(outcome: Outcome, linker: Linker | None = None) -> list[Found]:
+    """The found items of one email. Without a linker, nothing is linked."""
     if outcome.checked is None:
         return []
+    if linker is None:
+        linker = Linker()
     items: list[ValidItem] = outcome.checked.items
+    sample_id = outcome.sample.id
     found = []
     for n, item in enumerate(items):
-        uid = f"{outcome.sample.id}/{n}"
-        found.append(Found(uid, item.course, item.title, item.due_at, item.status))
+        uid = f"{sample_id}/{n}"
+        target = linker.link(uid, sample_id, item)
+        found.append(Found(uid, item.course, item.title, item.due_at, item.status, target))
     return found
 
 
-def to_email(outcome: Outcome) -> Email:
-    labels = outcome.sample.labels.items
-    return Email(labels, found_of(outcome))
+def to_emails(outcomes: Sequence[Outcome]) -> list[Email]:
+    """Each email's labels and found items. Outcomes must be oldest first."""
+    linker = Linker()
+    return [Email(o.sample.labels.items, found_of(o, linker)) for o in outcomes]
 
 
 def ratio_data(ratio: Ratio) -> dict[str, Any]:
@@ -103,7 +145,7 @@ def count_data(outcomes: Sequence[Outcome], scores: Scores) -> dict[str, int]:
 
 def report(set_name: str, mode: str, model: str, outcomes: Sequence[Outcome]) -> dict[str, Any]:
     """Summary metrics and counts only."""
-    emails = [to_email(o) for o in outcomes]
+    emails = to_emails(outcomes)
     scores = score(emails)
     return {
         "set": set_name,

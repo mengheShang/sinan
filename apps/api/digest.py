@@ -2,7 +2,7 @@
 
 All sit behind the login like every other route. The Worker makes digests;
 the only write here is the owner changing an item's status, which touches
-the local database alone.
+the local database alone. Proposed changes are in apps/api/proposals.py.
 """
 
 import uuid
@@ -51,6 +51,8 @@ class DigestOut(BaseModel):
     new: list[ItemOut]
     due_soon: list[ItemOut]
     needs_review: list[ItemOut]
+    # Proposed changes that expired unanswered since the previous digest
+    expired_proposals: int
 
 
 def gmail_url(view: ItemView, live: bool) -> str | None:
@@ -97,6 +99,7 @@ def digest(session: SessionDep, settings: SettingsDep) -> DigestOut | None:
         new=sections["new"],
         due_soon=sections["due_soon"],
         needs_review=sections["needs_review"],
+        expired_proposals=view.expired_proposals,
     )
 
 

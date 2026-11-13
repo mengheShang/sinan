@@ -49,7 +49,9 @@ const REVIEW_TEXT: Record<string, string> = {
   ambiguous_time: "The time happens twice on a clock change",
   due_not_in_evidence: "The due time is not in the quoted text",
   no_due_raw: "A deadline without a due time",
-  unmatched_update: "Changes an earlier item: check which one",
+  unmatched_update: "Changes an earlier item, but none matched: check which one",
+  ambiguous_update: "Changes an earlier item, but several matched: check which one",
+  proposal_expired: "A proposed new due time expired unanswered: check the due time",
 };
 
 export function reviewText(code: string | null): string {
