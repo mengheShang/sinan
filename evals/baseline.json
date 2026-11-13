@@ -1,0 +1,8 @@
+{
+  "synthetic": {
+    "item_recall": 89.74,
+    "item_precision": 97.22,
+    "due_accuracy": 97.14,
+    "change_accuracy": 0.0
+  }
+}
