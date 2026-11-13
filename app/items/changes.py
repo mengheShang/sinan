@@ -30,6 +30,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from app.db.models import AuditEvent, ExtractionRun, Item, ItemVersion, Message, Proposal
 from app.extraction.validate import ValidItem
+from app.items.assumed import Assumed, assumed_of
 from app.items.matching import Known, match
 from app.proposals import expiry, item_update, payload_hash
 
@@ -87,6 +88,18 @@ def confirmed_at(session: Session, item_id: uuid.UUID) -> datetime | None:
     return session.execute(query).scalar_one()
 
 
+def current_assumed(session: Session, item_id: uuid.UUID) -> Assumed:
+    """The assumed parts of the item's due time, from the version that set it."""
+    query = (
+        select(ItemVersion.after)
+        .where(ItemVersion.item_id == item_id, ItemVersion.after.has_key("due_at"))
+        .order_by(ItemVersion.version.desc())
+        .limit(1)
+    )
+    after = session.execute(query).scalar_one_or_none()
+    return assumed_of(after)
+
+
 def pending_on(session: Session, item_id: uuid.UUID) -> list[tuple[Proposal, datetime]]:
     """The item's pending proposals, each with its email's date."""
     query = (
@@ -129,7 +142,9 @@ def create(
     base = current_version(session, target.id)
     before = (target.due_raw, target.due_at)
     after = (item.due_raw, item.due_at)
-    payload = item_update(str(target.id), before, after, item.evidence)
+    old = current_assumed(session, target.id)
+    new = Assumed(item.zone_assumed, item.time_assumed)
+    payload = item_update(str(target.id), before, after, item.evidence, old, new)
     proposal = Proposal(
         kind="item_update",
         item_id=target.id,

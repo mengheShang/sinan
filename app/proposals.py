@@ -19,6 +19,8 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from app.items.assumed import NOTHING, Assumed, assumed_fields
+
 HASH_PATTERN = r"^[0-9a-f]{64}$"
 
 
@@ -133,15 +135,20 @@ def item_update(
     before: tuple[str | None, datetime | None],
     after: tuple[str | None, datetime | None],
     evidence: str,
+    before_assumed: Assumed = NOTHING,
+    after_assumed: Assumed = NOTHING,
 ) -> dict[str, Any]:
     """The payload of an item_update proposal: a new due time for one item.
 
-    `before` and `after` are (due_raw, due_at). The hash covers what the
-    owner sees: both times and the evidence.
+    `before` and `after` are (due_raw, due_at), each with the parts that
+    were assumed (ADR 0016). The hash covers what the owner sees: both
+    times, their assumed parts and the evidence.
     """
+    old = {"due_raw": before[0], "due_at": utc_text(before[1])}
+    new = {"due_raw": after[0], "due_at": utc_text(after[1])}
     return {
         "item_id": item_id,
-        "before": {"due_raw": before[0], "due_at": utc_text(before[1])},
-        "after": {"due_raw": after[0], "due_at": utc_text(after[1])},
+        "before": {**old, **assumed_fields(before_assumed)},
+        "after": {**new, **assumed_fields(after_assumed)},
         "evidence": evidence,
     }

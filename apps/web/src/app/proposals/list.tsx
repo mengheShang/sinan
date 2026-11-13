@@ -2,6 +2,7 @@
 // Server component: the list comes from the API, which expires and supersedes
 // stale proposals before answering.
 import { localTime } from "@/lib/format";
+import { AssumedNote } from "../assumed";
 import styles from "../digest.module.css";
 import { DecideButtons } from "./decide-buttons";
 import type { Due, Proposal } from "./types";
@@ -25,7 +26,9 @@ function ProposalCard({ proposal, zone }: { proposal: Proposal; zone: string }) 
         <span className={styles.flag}>New due time proposed</span>
       </div>
       <p className={styles.due}>
-        Due {dueText(proposal.before, zone)} → <strong>{dueText(proposal.after, zone)}</strong>
+        Due {dueText(proposal.before, zone)}
+        <AssumedNote due={proposal.before} /> → <strong>{dueText(proposal.after, zone)}</strong>
+        <AssumedNote due={proposal.after} />
       </p>
       {proposal.evidence ? (
         <blockquote className={styles.evidence}>{proposal.evidence}</blockquote>

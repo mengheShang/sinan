@@ -8,7 +8,10 @@ Nothing the model says is trusted on its own (ADR 0007):
   without such evidence is dropped.
 - `due_raw` must appear inside the evidence. If it does not, the item is kept
   without a time and marked `needs_review`.
-- `due_at` always comes from `parse_due`, never from the model.
+- `due_at` always comes from `parse_due`, never from the model. A missing
+  zone or time is assumed there (ADR 0016) and the item records which.
+  Nothing is assumed when the evidence names a zone or time that `due_raw`
+  left out: the item is marked `needs_review` instead.
 - An "update" is marked `needs_review` (`unmatched_update`) here. Extraction
   then matches it to the item it changes (app/items/changes.py): one match
   becomes a proposal instead of an item, and only an unmatched or ambiguous
@@ -18,11 +21,11 @@ Nothing the model says is trusted on its own (ADR 0007):
 import json
 import unicodedata
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, tzinfo
 
 from pydantic import ValidationError
 
-from app.extraction.deadlines import parse_due
+from app.extraction.deadlines import HOME, DueParse, names_time, names_zone, parse_due
 from app.extraction.schema import ExtractedItem, Extraction
 
 # Shorter evidence, such as "HW", would match almost any email
@@ -41,6 +44,9 @@ class ValidItem:
     review: str | None
     evidence: str
     change_type: str
+    # Which parts of `due_at` were assumed, not written (ADR 0016)
+    zone_assumed: bool = False
+    time_assumed: bool = False
 
 
 @dataclass(frozen=True)
@@ -84,22 +90,36 @@ def parse_reply(raw: str) -> Extraction | str:
         return "bad_schema"
 
 
-def due_of(item: ExtractedItem, sent_at: datetime) -> tuple[datetime | None, str | None]:
-    """The parsed due time, or why there is none. (None, None) means no deadline given."""
+def nothing_left_out(parsed: DueParse, evidence: str) -> DueParse:
+    """Refuse an assumed zone or time that the evidence states (ADR 0016).
+
+    The model may copy "Nov 18 at 10am" from "Nov 18 at 10am ET". Assuming
+    the owner's zone would then give a wrong time that looks right.
+    """
+    if parsed.zone_assumed and names_zone(evidence):
+        return DueParse(None, "zone_outside_due")
+    if parsed.time_assumed and names_time(evidence):
+        return DueParse(None, "time_outside_due")
+    return parsed
+
+
+def due_of(item: ExtractedItem, sent_at: datetime, home: tzinfo) -> DueParse:
+    """The parsed due time, or why there is none. Neither means no deadline given."""
     if item.due_raw is None or not item.due_raw.strip():
         if item.kind == "deadline":
-            return None, "no_due_raw"
-        return None, None
+            return DueParse(None, "no_due_raw")
+        return DueParse(None, None)
     raw = squash(item.due_raw).casefold()
     evidence = squash(item.evidence).casefold()
     if raw not in evidence:
-        return None, "due_not_in_evidence"
-    parsed = parse_due(item.due_raw, sent_at)
-    return parsed.due_at, parsed.reason
+        return DueParse(None, "due_not_in_evidence")
+    parsed = parse_due(item.due_raw, sent_at, home)
+    return nothing_left_out(parsed, item.evidence)
 
 
-def build(item: ExtractedItem, sent_at: datetime) -> ValidItem:
-    due_at, review = due_of(item, sent_at)
+def build(item: ExtractedItem, sent_at: datetime, home: tzinfo) -> ValidItem:
+    due = due_of(item, sent_at, home)
+    review = due.reason
     if review is None and item.change_type == "update":
         review = "unmatched_update"
     status = "open" if review is None else "needs_review"
@@ -109,16 +129,22 @@ def build(item: ExtractedItem, sent_at: datetime) -> ValidItem:
         course=blank_to_none(item.course),
         title=item.title.strip(),
         due_raw=due_raw,
-        due_at=due_at,
+        due_at=due.due_at,
         status=status,
         review=review,
         evidence=item.evidence,
         change_type=item.change_type,
+        zone_assumed=due.zone_assumed,
+        time_assumed=due.time_assumed,
     )
 
 
-def check(raw: str, body: str, sent_at: datetime) -> Checked:
-    """Validate one reply against the email body it came from."""
+def check(raw: str, body: str, sent_at: datetime, home: tzinfo = HOME) -> Checked:
+    """Validate one reply against the email body it came from.
+
+    `home` is the owner's zone (SINAN_TIMEZONE), assumed when a due time
+    names none.
+    """
     reply = parse_reply(raw)
     if isinstance(reply, str):
         return Checked("invalid", [], reply)
@@ -127,7 +153,7 @@ def check(raw: str, body: str, sent_at: datetime) -> Checked:
     for item in reply.items:
         if not has_evidence(item, haystack) or not item.title.strip():
             continue
-        kept.append(build(item, sent_at))
+        kept.append(build(item, sent_at, home))
     dropped = len(reply.items) - len(kept)
     detail = f"dropped={dropped}" if dropped else None
     return Checked("ok", kept, detail)

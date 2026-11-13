@@ -121,5 +121,10 @@ def test_item_update_payload_hashes() -> None:
     before = ("Friday 11:59pm PT", datetime(2026, 11, 14, 7, 59, tzinfo=UTC))
     after = ("Monday 11:59pm PT", datetime(2026, 11, 17, 7, 59, tzinfo=UTC))
     payload = item_update("item-1", before, after, "Homework 3 is now due Monday")
-    assert payload["after"] == {"due_raw": "Monday 11:59pm PT", "due_at": "2026-11-17T07:59:00Z"}
+    assert payload["after"] == {
+        "due_raw": "Monday 11:59pm PT",
+        "due_at": "2026-11-17T07:59:00Z",
+        "zone_assumed": False,
+        "time_assumed": False,
+    }
     assert len(payload_hash(payload)) == 64

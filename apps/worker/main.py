@@ -36,7 +36,8 @@ def cycle(
     """Sync, then extract, then the digest, so each step sees the one before."""
     sync_all(sessions, reader_for)
     cap = settings.sinan_extract_per_cycle
-    extract_all(sessions, extractor, rules, cap, settings.sinan_proposal_ttl_days)
+    ttl = settings.sinan_proposal_ttl_days
+    extract_all(sessions, extractor, rules, cap, ttl, settings.zone())
     digest_today(sessions, settings)
 
 
