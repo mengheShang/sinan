@@ -18,12 +18,20 @@ previous digest (ADR 0009, decision 6): those whose expiry time falls after
 the previous digest and no later than this one. The Worker checks proposals
 right before making a digest, so the count and the needs_review section
 include them.
+
+Time on read (ADR 0015): each active item has a phase from
+app.items.timing. A digest stores only the items that were current when it
+was made. Reading it takes a clock: stored items that have since become
+overdue, past or stale leave their sections, and the "overdue" group is
+computed from all active items at that moment. It is never stored, so a
+digest's rows never change after it is made. Past and stale items are
+listed by `past_items` for the Past view.
 """
 
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Any, get_args
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import Row, Select, func, select
@@ -40,6 +48,7 @@ from app.db.models import (
     Message,
     Proposal,
 )
+from app.items.timing import Phase, phase
 
 DUE_WINDOW = timedelta(days=7)
 ACTIVE = ("open", "needs_review")
@@ -80,6 +89,25 @@ def section_ids(
     }
 
 
+def pending_items(session: Session, now: datetime) -> set[uuid.UUID]:
+    """Items with a proposal that can still be decided at `now` (ADR 0014).
+
+    The same test as app.proposals.validity: pending, not expired, and based
+    on the item's current version.
+    """
+    newest_version = func.max(ItemVersion.version).label("version")
+    versions = select(ItemVersion.item_id, newest_version).group_by(ItemVersion.item_id)
+    current = versions.subquery()
+    query = (
+        select(Proposal.item_id)
+        .join(current, current.c.item_id == Proposal.item_id)
+        .where(Proposal.status == "pending")
+        .where(Proposal.expires_at > now)
+        .where(Proposal.base_version == current.c.version)
+    )
+    return set(session.execute(query).scalars())
+
+
 def expired_between(session: Session, since: datetime | None, until: datetime) -> int:
     """Proposals that expired unanswered after `since`, up to `until`."""
     query = select(func.count()).where(
@@ -109,7 +137,8 @@ def make_digest(
         # Another run made it first
         session.rollback()
         return None
-    sections = section_ids(session, now, since)
+    found = section_ids(session, now, since)
+    sections = keep_current(session, found, now)
     for section, ids in sections.items():
         for item_id in ids:
             session.add(DigestItem(digest_id=digest_id, section=section, item_id=item_id))
@@ -118,6 +147,24 @@ def make_digest(
     session.add(audit(digest_id, today, counts))
     session.commit()
     return session.get(Digest, digest_id)
+
+
+def keep_current(
+    session: Session, sections: dict[str, list[uuid.UUID]], now: datetime
+) -> dict[str, list[uuid.UUID]]:
+    """Drop items that are not current at `now`, so the digest stores none.
+
+    This also keeps an item that was already past when it was extracted out
+    of "new" (ADR 0015, decision 3).
+    """
+    ids = {item_id for ids in sections.values() for item_id in ids}
+    rows = session.execute(item_query().where(Item.id.in_(ids))).all() if ids else []
+    pending = pending_items(session, now)
+    phases = {view.id: phase_of(view, now, pending) for view in map(to_view, rows)}
+    kept: dict[str, list[uuid.UUID]] = {}
+    for name, section in sections.items():
+        kept[name] = [item_id for item_id in section if phases[item_id] == "current"]
+    return kept
 
 
 def audit(digest_id: uuid.UUID, day: date, counts: dict[str, int]) -> AuditEvent:
@@ -159,6 +206,8 @@ class DigestView:
     generated_at: datetime
     since: datetime | None
     sections: dict[str, list[ItemView]]
+    # Active items whose due time passed less than two days ago, at read time
+    overdue: list[ItemView]
     # Proposals that expired unanswered since the previous digest
     expired_proposals: int
 
@@ -224,20 +273,56 @@ def order_key(view: ItemView) -> tuple[bool, datetime, str]:
     return (view.due_at is None, when, view.title)
 
 
-def read_digest(session: Session, digest: Digest) -> DigestView:
+def phase_of(view: ItemView, now: datetime, pending: set[uuid.UUID]) -> Phase:
+    source_at = view.received_at or view.created_at
+    return phase(view.status, view.due_at, source_at, now, view.id in pending)
+
+
+def shown(view: ItemView, now: datetime, pending: set[uuid.UUID]) -> bool:
+    """Whether a stored item still belongs in its section at `now`.
+
+    Closed items stay, so the Dashboard can count what was closed since the
+    digest was made; overdue ones move to the overdue group.
+    """
+    if view.status not in ACTIVE:
+        return True
+    return phase_of(view, now, pending) == "current"
+
+
+def by_phase(session: Session, now: datetime) -> dict[Phase, list[ItemView]]:
+    """Active items grouped by their phase at `now`, each in digest order."""
+    pending = pending_items(session, now)
+    groups: dict[Phase, list[ItemView]] = {p: [] for p in get_args(Phase)}
+    for view in list_items(session, ACTIVE):
+        groups[phase_of(view, now, pending)].append(view)
+    return groups
+
+
+def read_digest(session: Session, digest: Digest, now: datetime) -> DigestView:
+    """A stored digest as it stands at `now`; the stored rows are not changed."""
     links = select(DigestItem.section, DigestItem.item_id).where(DigestItem.digest_id == digest.id)
     pairs = session.execute(links).all()
     ids = {item_id for _, item_id in pairs}
     rows = session.execute(item_query().where(Item.id.in_(ids))).all() if ids else []
     views = {view.id: view for view in map(to_view, rows)}
+    pending = pending_items(session, now)
     sections: dict[str, list[ItemView]] = {name: [] for name in SECTIONS}
     for section, item_id in pairs:
-        sections[section].append(views[item_id])
+        view = views[item_id]
+        if shown(view, now, pending):
+            sections[section].append(view)
     for name in SECTIONS:
         sections[name].sort(key=order_key)
     expired = expired_between(session, digest.since, digest.generated_at)
+    overdue = by_phase(session, now)["overdue"]
     return DigestView(
-        digest.id, digest.digest_date, digest.generated_at, digest.since, sections, expired
+        digest.id,
+        digest.digest_date,
+        digest.generated_at,
+        digest.since,
+        sections,
+        overdue,
+        expired,
     )
 
 
@@ -246,3 +331,19 @@ def list_items(session: Session, statuses: tuple[str, ...]) -> list[ItemView]:
     views = [to_view(row) for row in rows]
     views.sort(key=order_key)
     return views
+
+
+@dataclass(frozen=True)
+class PastView:
+    # Due time passed two or more days ago
+    past: list[ItemView]
+    # Needs review, no due time, source email over 14 days old
+    stale: list[ItemView]
+
+
+def past_items(session: Session, now: datetime) -> PastView:
+    """Active items that have left the digest at `now`. Their status is unchanged."""
+    groups = by_phase(session, now)
+    # Most recently due first: the ones the owner may still act on lead
+    past = groups["past"][::-1]
+    return PastView(past, groups["stale"])
