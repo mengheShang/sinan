@@ -25,9 +25,9 @@ from app.db.models import Account, Item, ItemVersion, Message, Proposal
 from app.extraction.prefilter import Rules
 from app.providers.fakes import FakeExtractor
 from apps.api.auth import COOKIE, get_auth
+from apps.api.clock import get_clock
 from apps.api.main import app
 from apps.api.oauth import get_session
-from apps.api.proposals import get_clock
 
 pytestmark = pytest.mark.db
 
@@ -35,6 +35,8 @@ pytestmark = pytest.mark.db
 T0 = datetime(2026, 11, 2, 17, 0, tzinfo=UTC)
 RUN = datetime(2026, 11, 3, 12, 0, tzinfo=UTC)
 SECRET = "fake-session-secret-for-tests-only-0123456789"
+# The API's clock; a test may move it
+CLOCK = [RUN]
 
 DATE_ONLY = "Homework 3 is due Friday Nov 13."
 NO_ZONE = "Homework 3 is now due Monday Nov 16 at 5pm."
@@ -129,11 +131,12 @@ def client(session: Session) -> Iterator[TestClient]:
     app.dependency_overrides[get_session] = lambda: session
     app.dependency_overrides[get_auth] = lambda: auth
     app.dependency_overrides[get_settings] = lambda: settings
-    app.dependency_overrides[get_clock] = lambda: lambda: RUN
+    app.dependency_overrides[get_clock] = lambda: lambda: CLOCK[0]
     with TestClient(app) as c:
         c.cookies.set(COOKIE, signer.issue(auth.clock()))
         yield c
     app.dependency_overrides.clear()
+    CLOCK[0] = RUN
 
 
 def test_extraction_stores_the_assumed_parts(session: Session) -> None:
@@ -237,3 +240,18 @@ def test_counted_date_is_marked_computed(client: TestClient, session: Session) -
     assert shown["date_computed"] is True
     assert shown["zone_assumed"] is True
     assert shown["time_assumed"] is True
+
+
+def test_overdue_and_past_show_the_flags(client: TestClient, session: Session) -> None:
+    # Due Friday Nov 13, 23:59 in Los Angeles: 07:59 UTC Nov 14
+    mail(session, DATE_ONLY, 0)
+    extract(session)
+    make_digest(session, RUN, ZoneInfo("America/Los_Angeles"), 7, force=True)
+    CLOCK[0] = datetime(2026, 11, 14, 12, 0, tzinfo=UTC)
+    (overdue,) = client.get("/digest").json()["overdue"]
+    assert overdue["zone_assumed"] is True
+    assert overdue["time_assumed"] is True
+    CLOCK[0] = datetime(2026, 11, 20, 12, 0, tzinfo=UTC)
+    (past,) = client.get("/items/past").json()["past"]
+    assert past["zone_assumed"] is True
+    assert past["time_assumed"] is True

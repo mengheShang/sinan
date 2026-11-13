@@ -9,11 +9,10 @@ external is touched.
 """
 
 import uuid
-from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -29,25 +28,13 @@ from app.actions.proposals import (
 from app.db.models import Account, Item, Message, Proposal
 from app.items.assumed import assumed_of
 from app.proposals import HASH_PATTERN
+from apps.api.clock import ClockDep
 from apps.api.digest import SettingsDep
 from apps.api.oauth import SessionDep
 
 router = APIRouter()
 
-Clock = Callable[[], datetime]
 Status = Literal["pending", "approved", "rejected", "expired", "superseded", "executed"]
-
-
-def utc_now() -> datetime:
-    return datetime.now(UTC)
-
-
-def get_clock() -> Clock:
-    """The current time; tests replace it to check expiry."""
-    return utc_now
-
-
-ClockDep = Annotated[Clock, Depends(get_clock)]
 
 
 class DueOut(BaseModel):

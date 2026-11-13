@@ -36,6 +36,8 @@ type Digest = {
   generated_at: string;
   since: string | null;
   timezone: string;
+  // Due time passed less than two days ago; computed when the digest is read
+  overdue: Item[];
   new: Item[];
   due_soon: Item[];
   needs_review: Item[];
@@ -196,6 +198,8 @@ function DigestView({ digest }: { digest: Digest | null | "error" }) {
             {digest.expired_proposals === 1 ? "change" : "changes"} expired unanswered
           </>
         ) : null}
+        {" "}
+        · items past due over two days are on the <Link href="/past">Past items</Link> page
         {closed.size > 0 ? (
           <>
             {" "}
@@ -203,6 +207,7 @@ function DigestView({ digest }: { digest: Digest | null | "error" }) {
           </>
         ) : null}
       </p>
+      <Section title="Overdue" empty="Nothing overdue." items={digest.overdue} zone={zone} />
       <Section
         title="Due in the next 7 days"
         empty="Nothing due this week."

@@ -14,8 +14,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
 from app.config import Settings, get_settings
-from app.db.digest import ItemView, latest, list_items, read_digest
+from app.db.digest import ItemView, latest, list_items, past_items, read_digest
 from app.db.item_status import BadMove, UnknownItem, set_status
+from apps.api.clock import ClockDep
 from apps.api.oauth import SessionDep
 
 router = APIRouter()
@@ -52,6 +53,8 @@ class DigestOut(BaseModel):
     since: datetime | None
     # IANA zone for showing times; all times above are UTC
     timezone: str
+    # Computed at read time from all active items, never stored (ADR 0015)
+    overdue: list[ItemOut]
     new: list[ItemOut]
     due_soon: list[ItemOut]
     needs_review: list[ItemOut]
@@ -90,12 +93,15 @@ def item_out(view: ItemView, live: bool) -> ItemOut:
 
 
 @router.get("/digest")
-def digest(session: SessionDep, settings: SettingsDep) -> DigestOut | None:
-    """The latest digest, or null before the Worker has made one."""
+def digest(session: SessionDep, settings: SettingsDep, clock: ClockDep) -> DigestOut | None:
+    """The latest digest as it stands now, or null before the Worker has made one.
+
+    Stored items that are now overdue, past or stale leave their sections.
+    """
     found = latest(session)
     if found is None:
         return None
-    view = read_digest(session, found)
+    view = read_digest(session, found, clock())
     live = settings.sinan_mode == "live"
     sections = {name: [item_out(v, live) for v in items] for name, items in view.sections.items()}
     return DigestOut(
@@ -103,6 +109,7 @@ def digest(session: SessionDep, settings: SettingsDep) -> DigestOut | None:
         generated_at=view.generated_at,
         since=view.since,
         timezone=settings.sinan_timezone,
+        overdue=[item_out(v, live) for v in view.overdue],
         new=sections["new"],
         due_soon=sections["due_soon"],
         needs_review=sections["needs_review"],
@@ -120,6 +127,24 @@ def items(
     wanted = tuple(status) if status else ("open", "needs_review")
     live = settings.sinan_mode == "live"
     return [item_out(v, live) for v in list_items(session, wanted)]
+
+
+class PastOut(BaseModel):
+    # Due two or more days ago, most recently due first
+    past: list[ItemOut]
+    # Needs review, no due time, source email over 14 days old
+    stale: list[ItemOut]
+
+
+@router.get("/items/past")
+def past(session: SessionDep, settings: SettingsDep, clock: ClockDep) -> PastOut:
+    """Open and needs_review items that have left the digest; still open to act on."""
+    view = past_items(session, clock())
+    live = settings.sinan_mode == "live"
+    return PastOut(
+        past=[item_out(v, live) for v in view.past],
+        stale=[item_out(v, live) for v in view.stale],
+    )
 
 
 class StatusBody(BaseModel):

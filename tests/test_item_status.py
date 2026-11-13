@@ -139,9 +139,9 @@ def test_later_digest_leaves_out_closed_item(session: Session) -> None:
     second = make_digest(session, MORNING, LA, 7)
     assert second is not None
     assert latest(session) == second
-    later = read_digest(session, second)
+    later = read_digest(session, second, MORNING)
     assert later.sections["due_soon"] == []
-    earlier = read_digest(session, first)
+    earlier = read_digest(session, first, MORNING)
     titles = [v.title for v in earlier.sections["due_soon"]]
     assert titles == ["Homework 3"]
     assert earlier.sections["due_soon"][0].status == "done"
