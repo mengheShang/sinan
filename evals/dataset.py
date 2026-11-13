@@ -5,7 +5,7 @@ loudly. Error messages hold a line number and a field path only, never the
 email text, so a bad real sample can be reported safely.
 """
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -128,14 +128,14 @@ def describe(err: ValidationError) -> str:
     return "; ".join(parts)
 
 
-def parse_line(number: int, line: str) -> Sample:
+def parse_line[S: Sample](number: int, line: str, model: type[S]) -> S:
     try:
-        return Sample.model_validate_json(line)
+        return model.model_validate_json(line)
     except ValidationError as err:
         raise SetError(f"line {number}: {describe(err)}") from None
 
 
-def check_links(samples: list[Sample], lines: list[int]) -> None:
+def check_links(samples: Sequence[Sample], lines: list[int]) -> None:
     """Ids and refs are unique, and `changes` points to an item from an earlier email."""
     ids: set[str] = set()
     sent: dict[str, datetime] = {}
@@ -158,13 +158,14 @@ def check_links(samples: list[Sample], lines: list[int]) -> None:
                 raise SetError(f"line {number}: {item.ref}.changes: must be an earlier email")
 
 
-def load_lines(lines: Iterable[str]) -> list[Sample]:
+def load_lines_as[S: Sample](lines: Iterable[str], model: type[S]) -> list[S]:
+    """Load lines as `model`, a Sample or a subclass that adds fields."""
     samples = []
     numbers = []
     for number, line in enumerate(lines, start=1):
         if not line.strip():
             continue
-        samples.append(parse_line(number, line))
+        samples.append(parse_line(number, line, model))
         numbers.append(number)
     if not samples:
         raise SetError("the set is empty")
@@ -172,6 +173,14 @@ def load_lines(lines: Iterable[str]) -> list[Sample]:
     return samples
 
 
-def load(path: Path = SYNTHETIC) -> list[Sample]:
+def load_lines(lines: Iterable[str]) -> list[Sample]:
+    return load_lines_as(lines, Sample)
+
+
+def load_as[S: Sample](path: Path, model: type[S]) -> list[S]:
     text = path.read_text(encoding="utf-8")
-    return load_lines(text.splitlines())
+    return load_lines_as(text.splitlines(), model)
+
+
+def load(path: Path = SYNTHETIC) -> list[Sample]:
+    return load_as(path, Sample)
