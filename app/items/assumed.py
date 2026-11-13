@@ -1,7 +1,7 @@
 """Which parts of a due time were assumed rather than written (ADR 0016).
 
-Pure functions only. The flags are stored in JSON data as `zone_assumed`
-and `time_assumed`: in the `after` data of the item version that set the
+Pure functions only. The flags are stored in JSON data as `zone_assumed`,
+`time_assumed` and `date_computed`: in the `after` data of the item version that set the
 due time (the create version, or an applied update) and in both sides of an
 item_update proposal's payload. Data written before ADR 0016 has no flags,
 which reads as nothing assumed.
@@ -18,6 +18,8 @@ class Assumed:
     zone: bool = False
     # No time was written, so 23:59 was used
     time: bool = False
+    # The date is the email's date plus a count ("in 3 days")
+    date: bool = False
 
 
 NOTHING = Assumed()
@@ -29,9 +31,14 @@ def assumed_of(data: Mapping[str, Any] | None) -> Assumed:
         return NOTHING
     zone = data.get("zone_assumed") is True
     time = data.get("time_assumed") is True
-    return Assumed(zone, time)
+    date = data.get("date_computed") is True
+    return Assumed(zone, time, date)
 
 
 def assumed_fields(flags: Assumed) -> dict[str, bool]:
     """The flags as stored data."""
-    return {"zone_assumed": flags.zone, "time_assumed": flags.time}
+    return {
+        "zone_assumed": flags.zone,
+        "time_assumed": flags.time,
+        "date_computed": flags.date,
+    }

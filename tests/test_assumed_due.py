@@ -39,6 +39,7 @@ SECRET = "fake-session-secret-for-tests-only-0123456789"
 DATE_ONLY = "Homework 3 is due Friday Nov 13."
 NO_ZONE = "Homework 3 is now due Monday Nov 16 at 5pm."
 STATED = "Homework 3 is now due Tuesday Nov 17 at 11:59pm PT."
+COUNTED = "Homework 3 is due in 3 days."
 
 
 def entry(evidence: str, due_raw: str, change: str) -> str:
@@ -57,6 +58,7 @@ REPLIES = {
     DATE_ONLY: entry(DATE_ONLY, "Friday Nov 13", "create"),
     NO_ZONE: entry(NO_ZONE, "Monday Nov 16 at 5pm", "update"),
     STATED: entry(STATED, "Tuesday Nov 17 at 11:59pm PT", "update"),
+    COUNTED: entry(COUNTED, "in 3 days", "create"),
 }
 
 
@@ -220,5 +222,18 @@ def test_status_change_keeps_the_flags(client: TestClient, session: Session) -> 
     resp = client.post(f"/items/{item.id}/status", json={"status": "done"})
     assert resp.status_code == 200
     (shown,) = client.get("/items?status=done").json()
+    assert shown["zone_assumed"] is True
+    assert shown["time_assumed"] is True
+
+
+def test_counted_date_is_marked_computed(client: TestClient, session: Session) -> None:
+    mail(session, COUNTED, 0)
+    extract(session)
+    item = only_item(session)
+    # Monday Nov 2 plus 3 days, 23:59 in Los Angeles
+    assert item.due_at == datetime(2026, 11, 6, 7, 59, tzinfo=UTC)
+    assert newest_after(session, item.id)["date_computed"] is True
+    (shown,) = client.get("/items").json()
+    assert shown["date_computed"] is True
     assert shown["zone_assumed"] is True
     assert shown["time_assumed"] is True

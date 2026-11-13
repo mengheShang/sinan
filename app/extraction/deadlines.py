@@ -21,16 +21,19 @@ extended by ADR 0011 and ADR 0016):
 - The date is a month name and day ("Nov 14", "November 14th, 2026"), a day
   and month name ("14 November", "14 Nov 2026"; day-first "May" needs its
   capital, since "2 may be late" is the verb), an ISO date, a weekday
-  ("Friday"), today / tonight / tomorrow, or "the first Friday after this
-  email" (ADR 0016, rule 3). Numeric dates such as 11/14 always need
-  review, because 11/12 has two readings.
+  ("Friday"), today / tonight / tomorrow, "the first Friday after this
+  email" (ADR 0016, rule 3), or "in N days/weeks" or "within N days/weeks"
+  (ADR 0016, rule 5): the email's local date plus N days or N weeks, and
+  the result says the date was computed. Numeric dates such as 11/14 always
+  need review, because 11/12 has two readings.
 - A missing year is inferred from the email date: the one year that puts the
   date between 30 days before and 335 days after the email.
 - A weekday alone means the first such day on or after the email date, in the
   deadline's time zone. "next Friday" needs review. "first Friday after
   this email" (or "after today") is the first Friday strictly after it.
-- Dates counted from another event ("the Friday after the midterm") or as a
-  span ("Friday in two weeks") need review.
+- Dates counted from another event ("the Friday after the midterm"), vague
+  spans ("in a few days") and other spans ("a week from Friday", "in two
+  months") need review.
 - A weekday next to a date must agree with it.
 - Wall times that do not exist, or happen twice, on a DST change need review,
   unless a standard or daylight name settles it. This holds in an assumed
@@ -208,7 +211,29 @@ FIRST_AFTER_RE = re.compile(
 EVENT_RE = re.compile(
     r"\b(?:after|following)\b|\b(?:day|week|" + words(WEEKDAYS) + r")s?\s+before\b"
 )
-NUMBER_WORDS = "a|an|one|two|three|four|five|six|seven|eight|nine|ten|a few|several"
+NUMBER_WORDS = (
+    "a|an|one|two|three|four|five|six|seven|eight|nine|ten|a few|a couple of|couple of|several"
+)
+# Counts for "in N days" (ADR 0016, rule 5): digits or simple words
+COUNTS = {
+    "a": 1,
+    "an": 1,
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+}
+UNIT_DAYS = {"day": 1, "week": 7}
+# "in 3 days", "within two weeks"; "in a few days" does not match
+COUNTED_RE = re.compile(r"\b(?:in|within)\s+(\d{1,2}|" + "|".join(COUNTS) + r")\s+(day|week)s?\b")
 # A span: "Friday in two weeks", "a week from today", "Friday next week"
 SPAN_RE = re.compile(
     r"\bin\s+(?:\d+|" + NUMBER_WORDS + r")\s+(?:day|week|month)s?\b"
@@ -229,6 +254,8 @@ class DueParse:
     zone_assumed: bool = False
     # No time was written, so 23:59 was used
     time_assumed: bool = False
+    # The date is the email's date plus a count ("in 3 days")
+    date_computed: bool = False
 
 
 def review(reason: str) -> DueParse:
@@ -400,14 +427,33 @@ def first_after(text: str) -> tuple[str, set[int]]:
     return rest, found
 
 
+def counted_days(text: str) -> tuple[str, set[int]] | str:
+    """Day counts of "in N days" phrases, and the text without them."""
+    found: set[int] = set()
+    for count_s, unit in COUNTED_RE.findall(text):
+        count = int(count_s) if count_s.isdigit() else COUNTS[count_s]
+        if count < 1:
+            return "relative_span"
+        found.add(count * UNIT_DAYS[unit])
+    rest = COUNTED_RE.sub(" ", text)
+    return rest, found
+
+
 def strictly_after(sent: date, weekday: int) -> date:
     """The first `weekday` after `sent`, never `sent` itself."""
     ahead = (weekday - sent.weekday() - 1) % 7 + 1
     return sent + timedelta(days=ahead)
 
 
-def find_day(text: str, cased: str, sent: date, after: set[int] | None = None) -> date | str:
-    """The due day. `after` holds weekdays of "first ... after this email" phrases."""
+def find_day(
+    text: str,
+    cased: str,
+    sent: date,
+    after: set[int] | None = None,
+    counted: set[int] | None = None,
+) -> date | str:
+    """The due day. `after` holds weekdays of "first ... after this email"
+    phrases and `counted` the day counts of "in N days" phrases."""
     weekdays = WEEKDAY_RE.findall(text)
     relative = set(RELATIVE_RE.findall(text))
     written = find_date(text, cased)
@@ -416,6 +462,11 @@ def find_day(text: str, cased: str, sent: date, after: set[int] | None = None) -
     if any(word == "next" for word, _ in weekdays):
         return "relative_weekday"
     named = {WEEKDAYS[w] for _, w in weekdays}
+    if counted:
+        # Any other date next to a count is a second date (ADR 0016, rule 5)
+        if len(counted) > 1 or after or written is not None or relative or named:
+            return "multiple_dates"
+        return sent + timedelta(days=next(iter(counted)))
     if after:
         if len(after) > 1 or written is not None or relative or named - after:
             return "multiple_dates"
@@ -508,7 +559,11 @@ def parse_due(due_raw: str, sent_at: datetime, home: tzinfo = HOME) -> DueParse:
     # Relative days count in the deadline's own time zone
     sent_local = sent_at.astimezone(zone.region).date()
     text, after = first_after(text)
-    day = find_day(text, cased, sent_local, after)
+    spans = counted_days(text)
+    if isinstance(spans, str):
+        return review(spans)
+    text, counted = spans
+    day = find_day(text, cased, sent_local, after, counted)
     if isinstance(day, str):
         return review(day)
     elsewhere = counted_elsewhere(text)
@@ -518,4 +573,5 @@ def parse_due(due_raw: str, sent_at: datetime, home: tzinfo = HOME) -> DueParse:
     if isinstance(placed, str):
         return review(placed)
     due_at = placed.astimezone(UTC)
-    return DueParse(due_at, None, found_zone is None, found_time is None)
+    computed = bool(counted)
+    return DueParse(due_at, None, found_zone is None, found_time is None, computed)

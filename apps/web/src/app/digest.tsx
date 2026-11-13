@@ -28,6 +28,7 @@ export type Item = {
   gmail_url: string | null;
   zone_assumed: boolean;
   time_assumed: boolean;
+  date_computed: boolean;
 };
 
 type Digest = {

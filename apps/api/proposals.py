@@ -56,6 +56,7 @@ class DueOut(BaseModel):
     # Parts of due_at that were assumed, not written (ADR 0016)
     zone_assumed: bool
     time_assumed: bool
+    date_computed: bool
 
 
 class ProposalOut(BaseModel):
@@ -88,6 +89,7 @@ def due_out(part: Any) -> DueOut:
         due_at=data.get("due_at"),
         zone_assumed=flags.zone,
         time_assumed=flags.time,
+        date_computed=flags.date,
     )
 
 

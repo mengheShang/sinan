@@ -126,5 +126,6 @@ def test_item_update_payload_hashes() -> None:
         "due_at": "2026-11-17T07:59:00Z",
         "zone_assumed": False,
         "time_assumed": False,
+        "date_computed": False,
     }
     assert len(payload_hash(payload)) == 64

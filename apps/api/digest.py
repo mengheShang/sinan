@@ -43,6 +43,7 @@ class ItemOut(BaseModel):
     # Parts of due_at that were assumed, not written (ADR 0016)
     zone_assumed: bool
     time_assumed: bool
+    date_computed: bool
 
 
 class DigestOut(BaseModel):
@@ -84,6 +85,7 @@ def item_out(view: ItemView, live: bool) -> ItemOut:
         gmail_url=gmail_url(view, live),
         zone_assumed=view.assumed.zone,
         time_assumed=view.assumed.time,
+        date_computed=view.assumed.date,
     )
 
 

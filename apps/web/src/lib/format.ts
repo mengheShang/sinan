@@ -33,7 +33,7 @@ export function localDate(value: string): string {
 const REVIEW_TEXT: Record<string, string> = {
   no_zone: "No time zone given",
   unknown_zone: "A time zone Sinan does not know",
-  zone_outside_due: "The quoted text names a time zone the due time left out",
+  zone_outside_due: "The email names a time zone the due time left out",
   multiple_zones: "Two different time zones",
   midnight: "“Midnight” could mean either end of the day",
   invalid_time: "The time does not exist",

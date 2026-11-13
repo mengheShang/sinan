@@ -5,6 +5,7 @@ export type Due = {
   due_at: string | null;
   zone_assumed: boolean;
   time_assumed: boolean;
+  date_computed: boolean;
 };
 
 export type Proposal = {

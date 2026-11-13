@@ -9,7 +9,8 @@ For each message without a run for the current prompt version:
 3. The reply is validated. Valid items are saved with their first
    `item_versions` row, which points at the message, the run and the evidence.
    Its `after` data also says whether the due time's zone or time was
-   assumed (ADR 0016): `zone_assumed` and `time_assumed`.
+   assumed, or its date computed from the email date (ADR 0016):
+   `zone_assumed`, `time_assumed` and `date_computed`.
 4. An item the model marks as an update, with a parsed due time, is matched
    to the item it changes (app/items/changes.py). One match becomes a
    pending proposal instead of a new item; several matches or none save the
@@ -116,6 +117,7 @@ def after_fields(item: ValidItem) -> dict[str, object]:
         "model_change_type": item.change_type,
         "zone_assumed": item.zone_assumed,
         "time_assumed": item.time_assumed,
+        "date_computed": item.date_computed,
     }
 
 

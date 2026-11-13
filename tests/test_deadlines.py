@@ -378,11 +378,9 @@ NEEDS_REVIEW_ADR_0016 = [
     ("the Friday before the exam", SENT, "vague_time"),
     ("the day after Nov 14", SENT, "relative_event"),
     ("Friday following spring break", SENT, "relative_event"),
-    # Rule 4: spans
-    ("in two weeks", SENT, "no_date"),
-    ("in 2 weeks 5pm PT", SENT, "no_date"),
-    ("Friday in two weeks", SENT, "relative_span"),
+    # Rule 4: spans other than "in N days" (rule 5, tested below)
     ("a week from Friday", SENT, "relative_span"),
+    ("a week from today", SENT, "relative_span"),
     ("Friday next week", SENT, "relative_span"),
     # A missing time tied to something else is not 23:59
     ("Nov 14 before class", SENT, "vague_time"),
@@ -438,3 +436,77 @@ def test_flags_only_come_with_a_due_time() -> None:
         if result.due_at is None:
             assert not result.zone_assumed
             assert not result.time_assumed
+
+
+# ADR 0016, rule 5: "in N days/weeks" and "within N days/weeks" count from
+# the email's local date; the time and zone follow rules 1 and 2
+COMPUTED = (True, True, True)
+# Saturday Nov 28 2026, Wednesday Oct 28 2026 (PDT) and Wednesday Mar 10 2027
+# (PST), all 09:00 or 10:00 in Los Angeles
+LATE_NOVEMBER = utc(2026, 11, 28, 17, 0)
+BEFORE_FALL_BACK = utc(2026, 10, 28, 17, 0)
+BEFORE_SPRING_FORWARD = utc(2027, 3, 10, 18, 0)
+
+PARSED_COUNTED = [
+    # Digits and words, days and weeks, "in" and "within"
+    ("in 3 days", SENT, utc(2026, 11, 14, 7, 59), COMPUTED),
+    ("in three days", SENT, utc(2026, 11, 14, 7, 59), COMPUTED),
+    ("in two weeks", SENT, utc(2026, 11, 25, 7, 59), COMPUTED),
+    ("in 2 weeks", SENT, utc(2026, 11, 25, 7, 59), COMPUTED),
+    ("within 10 days", SENT, utc(2026, 11, 21, 7, 59), COMPUTED),
+    ("within three weeks", SENT, utc(2026, 12, 2, 7, 59), COMPUTED),
+    ("in a week", SENT, utc(2026, 11, 18, 7, 59), COMPUTED),
+    ("in 1 day", SENT, utc(2026, 11, 12, 7, 59), COMPUTED),
+    # A written time or zone is used, and not marked as assumed
+    ("in 2 weeks 5pm PT", SENT, utc(2026, 11, 25, 1, 0), (False, False, True)),
+    ("in 1 day ET", SENT, utc(2026, 11, 12, 4, 59), (False, True, True)),
+    ("within 3 days at noon", SENT, utc(2026, 11, 13, 20, 0), (True, False, True)),
+    # Late in the month and across the year end
+    ("in 5 days", LATE_NOVEMBER, utc(2026, 12, 4, 7, 59), COMPUTED),
+    ("in two weeks", utc(2026, 12, 28, 18, 0), utc(2027, 1, 12, 7, 59), COMPUTED),
+    # Across a DST change: 23:59 local on the counted day
+    ("in 4 days", BEFORE_FALL_BACK, utc(2026, 11, 2, 7, 59), COMPUTED),
+    ("in 7 days", BEFORE_FALL_BACK, utc(2026, 11, 5, 7, 59), COMPUTED),
+    ("in 3 days", BEFORE_FALL_BACK, utc(2026, 11, 1, 6, 59), COMPUTED),
+    ("in 5 days", BEFORE_SPRING_FORWARD, utc(2027, 3, 16, 6, 59), COMPUTED),
+    # The local send date counts: 21:00 Friday in Los Angeles is Saturday in UTC
+    ("in 2 days", FRIDAY_NIGHT, utc(2026, 11, 16, 7, 59), COMPUTED),
+]
+
+
+@pytest.mark.parametrize(("raw", "sent", "expected", "flags"), PARSED_COUNTED)
+def test_parsed_counted(
+    raw: str, sent: datetime, expected: datetime, flags: tuple[bool, bool, bool]
+) -> None:
+    zone_assumed, time_assumed, date_computed = flags
+    expected_parse = DueParse(expected, None, zone_assumed, time_assumed, date_computed)
+    assert parse_due(raw, sent) == expected_parse
+
+
+NEEDS_REVIEW_COUNTED = [
+    # The same phrase also gives an explicit date: two dates
+    ("in 3 days, Nov 14", SENT, "multiple_dates"),
+    ("Friday in two weeks", SENT, "multiple_dates"),
+    ("tomorrow or in 3 days", SENT, "multiple_dates"),
+    ("in 2 days or in 3 days", SENT, "multiple_dates"),
+    ("in 3 days, the first Friday after this email", SENT, "multiple_dates"),
+    # Vague spans stay in review
+    ("in a few days", SENT, "no_date"),
+    ("in a couple of weeks", SENT, "no_date"),
+    ("in several days", SENT, "no_date"),
+    ("soon", SENT, "no_date"),
+    ("Friday in a few days", SENT, "relative_span"),
+    # Months and zero are not counted
+    ("in two months", SENT, "no_date"),
+    ("in 0 days", SENT, "relative_span"),
+]
+
+
+@pytest.mark.parametrize(("raw", "sent", "reason"), NEEDS_REVIEW_COUNTED)
+def test_needs_review_counted(raw: str, sent: datetime, reason: str) -> None:
+    assert parse_due(raw, sent) == DueParse(None, reason)
+
+
+def test_only_counted_dates_are_marked_computed() -> None:
+    for raw, sent, *_ in PARSED_ADR_0016:
+        assert not parse_due(raw, sent).date_computed

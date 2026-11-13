@@ -143,7 +143,7 @@ def create(
     before = (target.due_raw, target.due_at)
     after = (item.due_raw, item.due_at)
     old = current_assumed(session, target.id)
-    new = Assumed(item.zone_assumed, item.time_assumed)
+    new = Assumed(item.zone_assumed, item.time_assumed, item.date_computed)
     payload = item_update(str(target.id), before, after, item.evidence, old, new)
     proposal = Proposal(
         kind="item_update",
