@@ -3,6 +3,10 @@
 All sit behind the login like every other route. Writes go to the local
 database only: nothing reaches Gmail and the model plays no part.
 
+Only emails of the current sampling draw (Issue #41) are in the queue, and
+each is labeled into the set its draw gave it; the request does not choose.
+Any other email answers 404.
+
 Request bodies are read as plain JSON and checked here, so a 422 lists
 field paths and messages only. FastAPI's own 422 would echo the submitted
 values, which can quote the email.
@@ -10,7 +14,7 @@ values, which can quote the email.
 
 import uuid
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, HTTPException, status
 from fastapi.responses import JSONResponse
@@ -29,8 +33,6 @@ MAX_TAGS = 20
 class LabelBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    # Which set the email joins; fixed by sampling once Issue #41 exists
-    eval_set: Literal["dev", "test"]
     labels: Labels
     tags: list[Ref] = Field(default=[], max_length=MAX_TAGS)
 
@@ -43,8 +45,11 @@ class CorrectBody(BaseModel):
 
 
 class CountsOut(BaseModel):
+    # Labeled emails in each set's current draw, and the size of that draw
     dev: int
     test: int
+    dev_total: int
+    test_total: int
     skipped: int
     remaining: int
 
@@ -53,7 +58,7 @@ class QueueOut(BaseModel):
     counts: CountsOut
     # The oldest email neither labeled nor skipped, or null when none is left
     next_open_id: uuid.UUID | None
-    # The oldest email of all, so the page can open one when nothing is left
+    # The first sampled email, so the page can open one when nothing is left
     first_id: uuid.UUID | None
 
 
@@ -100,6 +105,8 @@ def counts_out(session: SessionDep) -> CountsOut:
     return CountsOut(
         dev=found.dev,
         test=found.test,
+        dev_total=found.dev_total,
+        test_total=found.test_total,
         skipped=found.skipped,
         remaining=found.remaining,
     )
@@ -123,7 +130,7 @@ def queue(session: SessionDep) -> QueueOut:
     return QueueOut(
         counts=counts_out(session),
         next_open_id=labeling.next_open(session),
-        first_id=labeling.first_id(session, [], desc=False),
+        first_id=labeling.first_id(session),
     )
 
 
@@ -133,7 +140,7 @@ def email(message_id: uuid.UUID, session: SessionDep) -> EmailOut:
     try:
         view = labeling.read_email(session, message_id)
     except labeling.UnknownEmail as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown email") from exc
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not a sampled email") from exc
     data = vars(view) | {"counts": counts_out(session)}
     data["problems"] = [vars(p) for p in view.problems]
     return EmailOut.model_validate(data)
@@ -148,13 +155,13 @@ def save(
     """Freeze the email and store its label in one transaction."""
     try:
         body = parse(LabelBody, data)
-        label_id = labeling.save(session, message_id, body.eval_set, body.labels, body.tags)
+        label_id = labeling.save(session, message_id, body.labels, body.tags)
     except Invalid as exc:
         session.rollback()
         return invalid(exc.problems)
     except labeling.UnknownEmail as exc:
         session.rollback()
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown email") from exc
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not a sampled email") from exc
     except labeling.Conflict as exc:
         session.rollback()
         raise HTTPException(
@@ -198,7 +205,7 @@ def skip(message_id: uuid.UUID, session: SessionDep) -> SavedOut:
         labeling.skip(session, message_id)
     except labeling.UnknownEmail as exc:
         session.rollback()
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown email") from exc
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not a sampled email") from exc
     except labeling.Conflict as exc:
         session.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, "Already labeled") from exc

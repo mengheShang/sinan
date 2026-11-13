@@ -1,4 +1,4 @@
-"""The labeling API (Issue #40) on fictional synthetic mail."""
+"""The labeling API (Issues #40 and #41) on fictional synthetic mail."""
 
 import uuid
 from collections.abc import Iterator
@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.auth import Auth, LoginLimiter, SessionSigner, hash_password
 from app.config import Settings, get_settings
 from app.db import labels as store
+from app.db import sampling
 from app.db.models import Account, AuditEvent, EvalLabel, Message
 from apps.api.auth import COOKIE, get_auth
 from apps.api.main import app
@@ -55,6 +56,20 @@ def add_message(session: Session, acct: Account, day: int, subject: str, body: s
     return msg.id
 
 
+def pick(session: Session, message_id: uuid.UUID, eval_set: str, version: int = 1) -> None:
+    """Record a draw of one email, as apps/worker/sample.py does."""
+    data = {"eval_set": eval_set, "set_version": version, "role": "school", "stratum": "passed"}
+    event = AuditEvent(
+        event_type=sampling.PICK_EVENT,
+        actor="user",
+        subject_type="message",
+        subject_id=message_id,
+        data=data,
+    )
+    session.add(event)
+    session.flush()
+
+
 @pytest.fixture
 def mail(session: Session) -> dict[str, uuid.UUID]:
     acct = Account(provider="gmail", email="student@example.edu", role="school")
@@ -64,7 +79,11 @@ def mail(session: Session) -> dict[str, uuid.UUID]:
         "hw": add_message(session, acct, 2, "CS 000: Homework 4", HW_BODY),
         "news": add_message(session, acct, 3, "Campus weekly", NEWS_BODY),
         "ext": add_message(session, acct, 4, "CS 000: Homework 4 extended", EXT_BODY),
+        # Synced but not sampled: never in the queue
+        "other": add_message(session, acct, 1, "Club meeting", NEWS_BODY),
     }
+    for name in ("hw", "news", "ext"):
+        pick(session, found[name], "dev")
     # Releases the savepoint, so an API rollback keeps the mail; the test's
     # outer transaction still rolls everything back
     session.commit()
@@ -101,12 +120,17 @@ def hw_item(**over: Any) -> dict[str, Any]:
     return data
 
 
-def body(*items: dict[str, Any], eval_set: str = "dev", **over: Any) -> dict[str, Any]:
+def body(*items: dict[str, Any], **over: Any) -> dict[str, Any]:
     data: dict[str, Any] = {
-        "eval_set": eval_set,
         "labels": {"items": list(items), "safe_to_auto_read": False},
         "tags": ["course"],
     }
+    data.update(over)
+    return data
+
+
+def counts(**over: int) -> dict[str, int]:
+    data = {"dev": 0, "test": 0, "dev_total": 3, "test_total": 0, "skipped": 0, "remaining": 0}
     data.update(over)
     return data
 
@@ -143,7 +167,7 @@ def test_needs_login(client: TestClient, mail: dict[str, uuid.UUID]) -> None:
 
 def test_queue_starts_with_the_oldest(client: TestClient, mail: dict[str, uuid.UUID]) -> None:
     data = client.get("/labeling").json()
-    assert data["counts"] == {"dev": 0, "test": 0, "skipped": 0, "remaining": 3}
+    assert data["counts"] == counts(remaining=3)
     assert data["next_open_id"] == str(mail["hw"])
     assert data["first_id"] == str(mail["hw"])
 
@@ -181,7 +205,7 @@ def test_save_freezes_and_stores(
     resp = client.post(f"/labeling/emails/{mail['hw']}/label", json=body(hw_item()))
     assert resp.status_code == 200
     data = resp.json()
-    assert data["counts"] == {"dev": 1, "test": 0, "skipped": 0, "remaining": 2}
+    assert data["counts"] == counts(dev=1, remaining=2)
     assert data["next_open_id"] == str(mail["news"])
     row = session.get(EvalLabel, uuid.UUID(data["label_id"]))
     assert row is not None
@@ -196,7 +220,7 @@ def test_save_freezes_and_stores(
     (event,) = audits(session)
     assert event.event_type == "eval_label.add"
     assert event.subject_id == row.id
-    assert event.data == {"message_id": str(mail["hw"]), "eval_set": "dev"}
+    assert event.data == {"message_id": str(mail["hw"]), "eval_set": "dev", "set_version": 1}
     no_content([event])
 
 
@@ -215,10 +239,79 @@ def test_saved_email_shows_the_snapshot(
     assert data["labels"]["items"][0]["title"] == "Homework 4"
 
 
-def test_save_into_test_set(client: TestClient, mail: dict[str, uuid.UUID]) -> None:
-    resp = client.post(f"/labeling/emails/{mail['news']}/label", json=body(eval_set="test"))
+def test_save_into_the_drawn_set(
+    client: TestClient, session: Session, mail: dict[str, uuid.UUID]
+) -> None:
+    # A later dev draw and the test draw; the email lands where its draw put it
+    pick(session, mail["other"], "test")
+    session.commit()
+    resp = client.post(f"/labeling/emails/{mail['other']}/label", json=body())
     assert resp.status_code == 200
-    assert resp.json()["counts"]["test"] == 1
+    data = resp.json()
+    assert data["counts"] == counts(test=1, test_total=1, remaining=3)
+    row = session.get(EvalLabel, uuid.UUID(data["label_id"]))
+    assert row is not None
+    assert (row.eval_set, row.set_version) == ("test", 1)
+
+
+def test_the_request_cannot_choose_the_set(
+    client: TestClient, session: Session, mail: dict[str, uuid.UUID]
+) -> None:
+    resp = client.post(f"/labeling/emails/{mail['hw']}/label", json=body(eval_set="test"))
+    assert resp.status_code == 422
+    assert resp.json()["detail"][0]["field"] == "eval_set"
+    count = session.execute(sa.select(sa.func.count()).select_from(EvalLabel)).scalar_one()
+    assert count == 0
+
+
+def test_unsampled_email_is_unknown(
+    client: TestClient, session: Session, mail: dict[str, uuid.UUID]
+) -> None:
+    other = mail["other"]
+    assert client.get(f"/labeling/emails/{other}").status_code == 404
+    assert client.post(f"/labeling/emails/{other}/label", json=body()).status_code == 404
+    assert client.post(f"/labeling/emails/{other}/skip").status_code == 404
+    assert session.execute(sa.select(sa.func.count()).select_from(EvalLabel)).scalar_one() == 0
+    assert audits(session) == []
+
+
+def test_queue_groups_by_set(
+    client: TestClient, session: Session, mail: dict[str, uuid.UUID]
+) -> None:
+    # The test set comes after the whole dev set, even with older mail
+    pick(session, mail["other"], "test")
+    session.commit()
+    data = client.get("/labeling").json()
+    assert data["counts"] == counts(test_total=1, remaining=4)
+    last_dev = client.get(f"/labeling/emails/{mail['ext']}").json()
+    assert last_dev["next_id"] == str(mail["other"])
+    view = client.get(f"/labeling/emails/{mail['other']}").json()
+    assert view["eval_set"] == "test"
+    assert view["prev_id"] == str(mail["ext"])
+    assert view["next_id"] is None
+
+
+def test_only_the_newest_draw_is_queued(
+    client: TestClient, session: Session, mail: dict[str, uuid.UUID]
+) -> None:
+    # A dev redraw (set version 2) replaces the dev draw in the queue
+    pick(session, mail["other"], "dev", version=2)
+    session.commit()
+    data = client.get("/labeling").json()
+    assert data["counts"] == counts(dev_total=1, remaining=1)
+    assert data["first_id"] == str(mail["other"])
+    assert client.get(f"/labeling/emails/{mail['hw']}").status_code == 404
+    saved = client.post(f"/labeling/emails/{mail['other']}/label", json=body()).json()
+    row = session.get(EvalLabel, uuid.UUID(saved["label_id"]))
+    assert row is not None
+    assert (row.eval_set, row.set_version) == ("dev", 2)
+
+
+def test_no_draw_means_an_empty_queue(client: TestClient, session: Session) -> None:
+    data = client.get("/labeling").json()
+    assert data["counts"] == counts(dev_total=0)
+    assert data["next_open_id"] is None
+    assert data["first_id"] is None
 
 
 def test_save_twice_conflicts(client: TestClient, mail: dict[str, uuid.UUID]) -> None:
@@ -232,7 +325,6 @@ def test_save_twice_conflicts(client: TestClient, mail: dict[str, uuid.UUID]) ->
     [
         (body(hw_item(due_at=None)), "labels.items.0"),
         (body(hw_item(kind="event")), "labels.items.0.kind"),
-        (body(hw_item(), eval_set="train"), "eval_set"),
         (body(hw_item(), tags=["Bad Tag"]), "tags.0"),
         (body(hw_item(), extra=MARKER), "extra"),
         (body(hw_item(due_raw="Saturday at noon")), "labels.items.0.due_raw"),
@@ -308,7 +400,6 @@ def test_correct_retires_and_replaces(
     saved = client.post(f"/labeling/emails/{mail['hw']}/label", json=body(hw_item()))
     old_id = saved.json()["label_id"]
     fixed = body(hw_item(title="Homework 4 written part"), tags=["course", "fixed"])
-    del fixed["eval_set"]
     resp = client.post(f"/labeling/labels/{old_id}/correct", json=fixed)
     assert resp.status_code == 200
     new_id = resp.json()["label_id"]
@@ -366,7 +457,7 @@ def test_skip_leaves_the_queue(
     resp = client.post(f"/labeling/emails/{mail['hw']}/skip")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["counts"] == {"dev": 0, "test": 0, "skipped": 1, "remaining": 2}
+    assert data["counts"] == counts(skipped=1, remaining=2)
     assert data["next_open_id"] == str(mail["news"])
     # Skipping again records nothing new
     assert client.post(f"/labeling/emails/{mail['hw']}/skip").status_code == 200
@@ -384,7 +475,7 @@ def test_skipped_email_can_still_be_labeled(client: TestClient, mail: dict[str, 
     client.post(f"/labeling/emails/{mail['hw']}/skip")
     resp = client.post(f"/labeling/emails/{mail['hw']}/label", json=body(hw_item()))
     assert resp.status_code == 200
-    assert resp.json()["counts"] == {"dev": 1, "test": 0, "skipped": 0, "remaining": 2}
+    assert resp.json()["counts"] == counts(dev=1, remaining=2)
 
 
 def test_skip_a_labeled_email_conflicts(client: TestClient, mail: dict[str, uuid.UUID]) -> None:
