@@ -1,6 +1,6 @@
 # ADR 0013: M3.5 course sources
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-12
 - Decider: Menghe
 
