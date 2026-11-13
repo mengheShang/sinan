@@ -1,9 +1,9 @@
 """ORM models.
 
 M1 creates 8 of the 11 phase-one tables, plus `digests` and `digest_items`
-(ADR 0008). M2 adds `proposals` (ADR 0009, decision 2); `grants` and
-`actions` come in M3. Every model must be defined in or imported into this
-module so Alembic can discover it.
+(ADR 0008). M2 adds `proposals` and `eval_labels` (ADR 0009, decisions 2
+and 3); `grants` and `actions` come in M3. Every model must be defined in
+or imported into this module so Alembic can discover it.
 
 All primary keys are UUIDs and all timestamps are stored in UTC.
 """
@@ -53,6 +53,15 @@ PROPOSAL_KINDS = ("item_update",)
 PROPOSAL_STATUSES = ("pending", "approved", "rejected", "expired", "superseded", "executed")
 # Statuses the owner decided; exactly these carry a decision time
 DECIDED_STATUSES = ("approved", "rejected", "executed")
+EVAL_SETS = ("dev", "test")
+SNAPSHOT_KEYS = ("from_addr", "subject", "body_text", "sent_at", "role", "headers")
+LABEL_KEYS = ("items", "safe_to_auto_read")
+
+
+def has_keys(column: str, keys: tuple[str, ...]) -> str:
+    """SQL for a CHECK that a JSONB column is an object with these keys."""
+    quoted = ", ".join(f"'{k}'" for k in keys)
+    return f"jsonb_typeof({column}) = 'object' AND {column} ?& ARRAY[{quoted}]"
 
 
 def uuid_pk() -> Mapped[uuid.UUID]:
@@ -362,3 +371,56 @@ class Proposal(Base):
     decided_at: Mapped[datetime | None] = mapped_column(UTC_TS)
     created_at: Mapped[datetime] = created_at()
     updated_at: Mapped[datetime] = updated_at()
+
+
+class EvalLabel(Base):
+    """One labeled email in the dev or test set (ADR 0009, decisions 3 and 5).
+
+    `snapshot` and `labels` hold the `input` and `labels` objects of the
+    format in evals/README.md. The evaluation reads this table, never
+    `messages`, so a re-sync cannot change its inputs.
+
+    Rows are never edited: the only UPDATE a trigger allows is retiring a row
+    once, and a correction is a new row whose `corrects` points at the
+    retired one. See app/db/labels.py.
+    """
+
+    __tablename__ = "eval_labels"
+    __table_args__ = (
+        UniqueConstraint("corrects"),
+        CheckConstraint(one_of("eval_set", EVAL_SETS), name="eval_set"),
+        CheckConstraint("set_version >= 1", name="set_version"),
+        CheckConstraint(has_keys("snapshot", SNAPSHOT_KEYS), name="snapshot"),
+        CheckConstraint(one_of("snapshot->>'role'", ROLES), name="snapshot_role"),
+        CheckConstraint(has_keys("labels", LABEL_KEYS), name="labels"),
+        CheckConstraint("jsonb_typeof(tags) = 'array'", name="tags"),
+        CheckConstraint("corrects <> id", name="not_self"),
+        # One current row per email, so an email is never in both sets at once
+        Index(
+            "ix_eval_labels_current_source",
+            "source_message_id",
+            unique=True,
+            postgresql_where=text("retired_at IS NULL"),
+        ),
+        Index(None, "eval_set", "set_version"),
+    )
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    eval_set: Mapped[str] = mapped_column(Text)
+    # Which sampling draw the row belongs to: bumped when a set is redrawn,
+    # kept by a correction
+    set_version: Mapped[int] = mapped_column(Integer)
+    # messages.id of the email the snapshot was copied from. For reference
+    # only: no foreign key, so the label outlives the message
+    source_message_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    labels: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    tags: Mapped[list[str]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    # The retired row this one corrects
+    corrects: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("eval_labels.id", ondelete="RESTRICT"),
+    )
+    # Set once, to the transaction time, when the row is retired
+    retired_at: Mapped[datetime | None] = mapped_column(UTC_TS)
+    # Always the inserting transaction's time; a trigger overwrites any value
+    created_at: Mapped[datetime] = created_at()
