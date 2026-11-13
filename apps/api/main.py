@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.config import get_settings
 from app.db.session import check_db, get_engine
 from app.logredact import install_redaction
-from apps.api import auth, digest, oauth
+from apps.api import auth, digest, labeling, oauth
 
 # Uvicorn sets up its log handlers before importing this module
 install_redaction()
@@ -35,6 +35,7 @@ def create_app() -> FastAPI:
     api.include_router(auth.router)
     api.include_router(oauth.router)
     api.include_router(digest.router)
+    api.include_router(labeling.router)
     api.add_api_route("/health", health)
     api.add_api_route("/health/db", health_db)
     return api

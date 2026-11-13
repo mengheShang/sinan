@@ -1,0 +1,125 @@
+.main {
+  max-width: 820px;
+  margin: 48px auto;
+  padding: 0 16px;
+  font-family: system-ui, sans-serif;
+  display: grid;
+  gap: 16px;
+}
+
+.note,
+.muted,
+.hint {
+  color: #737373;
+  font-size: 14px;
+}
+
+.bad {
+  color: #b91c1c;
+  font-size: 14px;
+}
+
+.counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 14px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.email {
+  border: 1px solid #d4d4d4;
+  border-radius: 6px;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  font-size: 14px;
+}
+
+.meta dt {
+  color: #737373;
+}
+
+.body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.form {
+  display: grid;
+  gap: 12px;
+}
+
+.form h2 {
+  font-size: 18px;
+}
+
+.item {
+  border: 1px solid #d4d4d4;
+  border-radius: 6px;
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.item legend {
+  padding: 0 4px;
+  font-size: 14px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 12px;
+  align-items: center;
+  font-size: 14px;
+}
+
+.grid label,
+.row label {
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+}
+
+.stack {
+  display: grid;
+  gap: 2px;
+}
+
+.form input:not([type="checkbox"]),
+.form select {
+  padding: 4px 6px;
+  font-size: 14px;
+  min-width: 0;
+}
+
+.item input[type="checkbox"] {
+  justify-self: start;
+}
+
+.errors {
+  color: #b91c1c;
+  font-size: 13px;
+  padding-left: 18px;
+}
+
+.main button {
+  padding: 4px 10px;
+  cursor: pointer;
+}
