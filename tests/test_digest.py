@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import Auth, LoginLimiter, SessionSigner, hash_password
 from app.config import Settings, get_settings
-from app.db.digest import latest, make_digest, read_digest
+from app.db.digest import latest, make_digest, past_items, read_digest
 from app.db.models import (
     Account,
     AuditEvent,
@@ -23,9 +23,12 @@ from app.db.models import (
     Item,
     ItemVersion,
     Message,
+    Proposal,
 )
 from app.extraction.prompt import PROMPT_HASH, PROMPT_VERSION
+from app.proposals import payload_hash
 from apps.api.auth import COOKIE, get_auth
+from apps.api.clock import get_clock
 from apps.api.main import app
 from apps.api.oauth import get_session
 from apps.worker.digest_job import digest_today
@@ -113,7 +116,7 @@ def seed_item(
 def sections(session: Session) -> dict[str, list[str]]:
     found = latest(session)
     assert found is not None
-    view = read_digest(session, found)
+    view = read_digest(session, found, MORNING)
     return {name: [i.title for i in items] for name, items in view.sections.items()}
 
 
@@ -139,9 +142,9 @@ def test_sections(session: Session) -> None:
     seed_item(session, "Check", MORNING - day, status="needs_review", review="numeric_date")
     seed_item(session, "Finished", MORNING - day, due_at=MORNING + day, status="done")
     make_digest(session, MORNING, LA, 7)
+    # Every active item counts as new in the first digest, except overdue "Past"
     assert sections(session) == {
-        # The first digest counts every active item as new
-        "new": ["Past", "Soon", "Later", "Check"],
+        "new": ["Soon", "Later", "Check"],
         "due_soon": ["Soon"],
         "needs_review": ["Check"],
     }
@@ -197,6 +200,162 @@ def test_digest_shows_current_item_state(session: Session) -> None:
     assert sections(session)["due_soon"] == ["Renamed"]
 
 
+# ---- Time on read (ADR 0015) ----
+
+DAY = timedelta(days=1)
+
+
+def seed_proposal(session: Session, item_id: uuid.UUID, expires_at: datetime) -> None:
+    """A pending proposal on the item's current version, from its source email."""
+    first = session.execute(sa.select(ItemVersion).where(ItemVersion.item_id == item_id))
+    version = first.scalar_one()
+    payload = {"due_raw": "Monday 11:59pm PT", "due_at": (MORNING + DAY).isoformat()}
+    proposal = Proposal(
+        kind="item_update",
+        item_id=item_id,
+        base_version=version.version,
+        payload=payload,
+        payload_hash=payload_hash(payload),
+        message_id=version.message_id,
+        extraction_run_id=version.extraction_run_id,
+        expires_at=expires_at,
+    )
+    session.add(proposal)
+    session.commit()
+
+
+def read_at(session: Session, now: datetime) -> dict[str, list[str]]:
+    found = latest(session)
+    assert found is not None
+    view = read_digest(session, found, now)
+    names = {name: [i.title for i in items] for name, items in view.sections.items()}
+    names["overdue"] = [i.title for i in view.overdue]
+    past = past_items(session, now)
+    names["past"] = [i.title for i in past.past]
+    names["stale"] = [i.title for i in past.stale]
+    return names
+
+
+def stored(session: Session) -> dict[str, int]:
+    query = sa.select(DigestItem.section, sa.func.count()).group_by(DigestItem.section)
+    return {section: count for section, count in session.execute(query).all()}
+
+
+def test_past_and_stale_leave_the_digest(session: Session) -> None:
+    seed_item(session, "Due tomorrow", MORNING - DAY, due_at=MORNING + DAY)
+    seed_item(session, "Due yesterday", MORNING - 5 * DAY, due_at=MORNING - DAY)
+    seed_item(session, "Due 3 days ago", MORNING - 5 * DAY, due_at=MORNING - 3 * DAY)
+    seed_item(session, "Old review", MORNING - 15 * DAY, status="needs_review")
+    seed_item(session, "Recent review", MORNING - 13 * DAY, status="needs_review")
+    make_digest(session, MORNING, LA, 7)
+    assert read_at(session, MORNING) == {
+        "new": ["Due tomorrow", "Recent review"],
+        "due_soon": ["Due tomorrow"],
+        "needs_review": ["Recent review"],
+        "overdue": ["Due yesterday"],
+        "past": ["Due 3 days ago"],
+        "stale": ["Old review"],
+    }
+
+
+def test_nothing_is_restatused(session: Session) -> None:
+    seed_item(session, "Due 3 days ago", MORNING - 5 * DAY, due_at=MORNING - 3 * DAY)
+    seed_item(session, "Old review", MORNING - 15 * DAY, status="needs_review")
+    make_digest(session, MORNING, LA, 7)
+    read_at(session, MORNING)
+    statuses = session.execute(sa.select(Item.title, Item.status)).all()
+    assert sorted(statuses) == [("Due 3 days ago", "open"), ("Old review", "needs_review")]
+
+
+def test_item_already_past_when_extracted_is_not_new(session: Session) -> None:
+    make_digest(session, MORNING - DAY, LA, 7)
+    # Found in old mail an hour ago, for an exam a month back
+    found = MORNING - timedelta(hours=1)
+    seed_item(session, "Old midterm", found, due_at=MORNING - 30 * DAY)
+    seed_item(session, "Fresh quiz", found, due_at=MORNING + 3 * DAY)
+    make_digest(session, MORNING, LA, 7)
+    names = read_at(session, MORNING)
+    assert names["new"] == ["Fresh quiz"]
+    assert names["past"] == ["Old midterm"]
+    assert names["overdue"] == []
+
+
+def test_pending_proposal_keeps_the_item_shown(session: Session) -> None:
+    moved = seed_item(session, "Moved exam", MORNING - 5 * DAY, due_at=MORNING - 3 * DAY)
+    review = seed_item(session, "Moved review", MORNING - 15 * DAY, status="needs_review")
+    seed_proposal(session, moved, MORNING + DAY)
+    seed_proposal(session, review, MORNING + DAY)
+    make_digest(session, MORNING, LA, 7)
+    names = read_at(session, MORNING)
+    assert names["overdue"] == ["Moved exam"]
+    assert names["needs_review"] == ["Moved review"]
+    assert names["past"] == names["stale"] == []
+    # Once the proposal expires, both leave the digest
+    later = read_at(session, MORNING + 2 * DAY)
+    assert later["past"] == ["Moved exam"]
+    assert later["stale"] == ["Moved review"]
+    assert later["overdue"] == later["needs_review"] == []
+
+
+def test_stored_digest_holds_only_current_items(session: Session) -> None:
+    seed_item(session, "Due tomorrow", MORNING - DAY, due_at=MORNING + DAY)
+    seed_item(session, "Due yesterday", MORNING - 5 * DAY, due_at=MORNING - DAY)
+    seed_item(session, "Old review", MORNING - 15 * DAY, status="needs_review")
+    make_digest(session, MORNING, LA, 7)
+    assert stored(session) == {"new": 1, "due_soon": 1}
+    event = session.execute(sa.select(AuditEvent)).scalar_one()
+    # The audited counts match the stored sections
+    assert event.data["new"] == 1
+    assert event.data["due_soon"] == 1
+    assert event.data["needs_review"] == 0
+
+
+def test_reading_later_moves_items_without_changing_the_digest(session: Session) -> None:
+    seed_item(session, "Due tonight", MORNING - DAY, due_at=MORNING + timedelta(hours=8))
+    make_digest(session, MORNING, LA, 7)
+    before = stored(session)
+    tomorrow = read_at(session, MORNING + DAY)
+    assert tomorrow["due_soon"] == tomorrow["new"] == []
+    assert tomorrow["overdue"] == ["Due tonight"]
+    in_three_days = read_at(session, MORNING + 3 * DAY)
+    assert in_three_days["overdue"] == []
+    assert in_three_days["past"] == ["Due tonight"]
+    assert stored(session) == before
+
+
+def test_api_digest_counts_match_its_sections(client: TestClient, session: Session) -> None:
+    seed_item(session, "Due tomorrow", MORNING - DAY, due_at=MORNING + DAY)
+    seed_item(session, "Due yesterday", MORNING - 5 * DAY, due_at=MORNING - DAY)
+    seed_item(session, "Due 3 days ago", MORNING - 5 * DAY, due_at=MORNING - 3 * DAY)
+    seed_item(session, "Old review", MORNING - 15 * DAY, status="needs_review")
+    make_digest(session, MORNING, LA, 7)
+    body = client.get("/digest").json()
+    assert [i["title"] for i in body["overdue"]] == ["Due yesterday"]
+    assert [i["title"] for i in body["new"]] == ["Due tomorrow"]
+    assert [i["title"] for i in body["due_soon"]] == ["Due tomorrow"]
+    assert body["needs_review"] == []
+    event = session.execute(sa.select(AuditEvent)).scalar_one()
+    for name in ("new", "due_soon", "needs_review"):
+        assert event.data[name] == len(body[name])
+
+
+def test_api_past_view(client: TestClient, session: Session) -> None:
+    seed_item(session, "Due 3 days ago", MORNING - 5 * DAY, due_at=MORNING - 3 * DAY)
+    seed_item(session, "Due 9 days ago", MORNING - 10 * DAY, due_at=MORNING - 9 * DAY)
+    seed_item(session, "Old review", MORNING - 15 * DAY, status="needs_review")
+    seed_item(session, "Due yesterday", MORNING - 5 * DAY, due_at=MORNING - DAY)
+    body = client.get("/items/past").json()
+    # Most recently due first
+    assert [i["title"] for i in body["past"]] == ["Due 3 days ago", "Due 9 days ago"]
+    assert [i["title"] for i in body["stale"]] == ["Old review"]
+    assert body["stale"][0]["status"] == "needs_review"
+
+
+def test_api_past_view_needs_login(client: TestClient) -> None:
+    client.cookies.clear()
+    assert client.get("/items/past").status_code == 401
+
+
 # ---- Schema ----
 
 
@@ -244,6 +403,7 @@ def api_client(session: Session, mode: str) -> Iterator[TestClient]:
     app.dependency_overrides[get_session] = lambda: session
     app.dependency_overrides[get_auth] = lambda: auth
     app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[get_clock] = lambda: lambda: MORNING
     with TestClient(app) as c:
         c.cookies.set(COOKIE, signer.issue(auth.clock()))
         yield c

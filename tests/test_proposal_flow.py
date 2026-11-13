@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.actions.proposals import HashMismatch, NotPending, approve, reject, sweep
 from app.auth import Auth, LoginLimiter, SessionSigner, hash_password
 from app.config import Settings, get_settings
-from app.db.digest import latest, list_items, make_digest, read_digest
+from app.db.digest import latest, list_items, make_digest, past_items, read_digest
 from app.db.extract import extract_pending
 from app.db.item_status import set_status
 from app.db.models import Account, AuditEvent, Item, ItemVersion, Message, Proposal
@@ -27,9 +27,9 @@ from app.extraction.prefilter import Rules
 from app.proposals import payload_hash
 from app.providers.fakes import FakeExtractor
 from apps.api.auth import COOKIE, get_auth
+from apps.api.clock import get_clock
 from apps.api.main import app
 from apps.api.oauth import get_session
-from apps.api.proposals import get_clock
 
 pytestmark = pytest.mark.db
 
@@ -304,9 +304,17 @@ def test_digest_counts_expired_proposals(session: Session) -> None:
     session.commit()
     digest = make_digest(session, when, LA, 7)
     assert digest is not None
-    view = read_digest(session, digest)
+    view = read_digest(session, digest, when)
     assert view.expired_proposals == 1
-    assert [i.title for i in view.sections["needs_review"]] == ["Homework 3"]
+    # The item needs review again, but its old due time (Friday) passed more
+    # than two days ago, so it is in the Past view, not the digest (ADR 0015)
+    assert view.sections["needs_review"] == []
+    (past,) = past_items(session, when).past
+    assert (past.title, past.status, past.review) == (
+        "Homework 3",
+        "needs_review",
+        "proposal_expired",
+    )
 
 
 # ---- Superseding ----
