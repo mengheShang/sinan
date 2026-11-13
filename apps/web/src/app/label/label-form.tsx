@@ -3,7 +3,7 @@
 // The label form: every field of evals/README.md. It builds the JSON the API
 // expects; the API checks it with the Pydantic models and answers with field
 // paths and messages only, which are shown next to the fields.
-import { useActionState, useState } from "react";
+import { type FormEvent, startTransition, useActionState, useState } from "react";
 import { localTime } from "@/lib/format";
 import { saveLabel } from "./actions";
 import styles from "./label.module.css";
@@ -203,12 +203,20 @@ export function LabelForm({ email, zone }: { email: Email; zone: string }) {
   const problems = state.problems;
   const change = (n: number, next: Draft) => setDrafts(drafts.map((d, i) => (i === n ? next : d)));
   const remove = (n: number) => setDrafts(drafts.filter((_, i) => i !== n));
+  // Not <form action>: React resets such a form after each submission, which put
+  // selects and checkboxes back to their defaults while the payload kept the
+  // state, so the page showed one label and saved another
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    startTransition(() => action(data));
+  };
   const known = new Set(["eval_set", "tags", "labels.safe_to_auto_read"]);
   const general = problems.filter(
     (p) => !p.field.startsWith("labels.items.") && !known.has(p.field),
   );
   return (
-    <form action={action} className={styles.form}>
+    <form onSubmit={submit} className={styles.form}>
       <input type="hidden" name="id" value={email.id} />
       <input type="hidden" name="label_id" value={email.label_id ?? ""} />
       <input type="hidden" name="payload" value={payload} />
