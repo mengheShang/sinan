@@ -210,8 +210,10 @@ def test_newer_email_supersedes_an_older_pending_proposal(session: Session) -> N
     item, older = posted_and_extended(session)
     mail(session, MOVED_LATE, 48)
     extract(session)
-    first, second = proposals(session)
-    assert (first.id, first.status) == (older.id, "superseded")
+    # Ordered by id within one test transaction, so pick each out by id
+    (first,) = [p for p in proposals(session) if p.id == older.id]
+    (second,) = [p for p in proposals(session) if p.id != older.id]
+    assert first.status == "superseded"
     assert second.status == "pending"
     assert second.payload["after"]["due_at"] == "2026-12-01T07:59:00Z"
 
