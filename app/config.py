@@ -11,10 +11,13 @@ from sqlalchemy import make_url
 from app.crypto import decode_key
 
 DEMO_SUFFIX = "_demo"
+TTL_DAYS_MIN = 1
+TTL_DAYS_MAX = 30
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=None, extra="ignore")
+    # Errors never echo a value back: some settings are secrets
+    model_config = SettingsConfigDict(env_file=None, extra="ignore", hide_input_in_errors=True)
 
     sinan_mode: Literal["demo", "live"] = "demo"
     database_url: str = "postgresql+psycopg://sinan:sinan@127.0.0.1:5432/sinan"
@@ -51,7 +54,14 @@ class Settings(BaseSettings):
     sinan_digest_hour: int = Field(default=7, ge=0, le=23)
     # Days a pending proposal waits before it expires, unless its due time
     # comes sooner (ADR 0009, decision 6)
-    sinan_proposal_ttl_days: int = Field(default=7, ge=1)
+    sinan_proposal_ttl_days: int = 7
+
+    @field_validator("sinan_proposal_ttl_days")
+    @classmethod
+    def ttl_in_range(cls, value: int) -> int:
+        if TTL_DAYS_MIN <= value <= TTL_DAYS_MAX:
+            return value
+        raise ValueError(f"SINAN_PROPOSAL_TTL_DAYS must be {TTL_DAYS_MIN} to {TTL_DAYS_MAX} days")
 
     @field_validator("sinan_timezone")
     @classmethod

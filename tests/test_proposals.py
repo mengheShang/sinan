@@ -3,6 +3,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from pydantic import ValidationError
 
 from app.config import Settings
 from app.proposals import PayloadError, canonical, expiry, payload_hash
@@ -96,5 +97,27 @@ def test_expiry_needs_aware_times() -> None:
 
 def test_ttl_setting_defaults_to_seven_days() -> None:
     assert Settings().sinan_proposal_ttl_days == 7
-    with pytest.raises(ValueError):
-        Settings(sinan_proposal_ttl_days=0)
+
+
+@pytest.mark.parametrize("days", [1, 30])
+def test_ttl_setting_accepts_its_bounds(days: int) -> None:
+    assert Settings(sinan_proposal_ttl_days=days).sinan_proposal_ttl_days == days
+
+
+@pytest.mark.parametrize("days", [0, 31, 12345])
+def test_ttl_setting_outside_range_is_refused(days: int) -> None:
+    with pytest.raises(ValidationError) as caught:
+        Settings(sinan_proposal_ttl_days=days)
+    message = str(caught.value)
+    assert "SINAN_PROPOSAL_TTL_DAYS must be 1 to 30 days" in message
+    assert "input_value" not in message
+    if days > 100:
+        assert str(days) not in message
+
+
+def test_ttl_setting_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SINAN_PROPOSAL_TTL_DAYS", "31")
+    with pytest.raises(ValidationError, match="SINAN_PROPOSAL_TTL_DAYS"):
+        Settings()
+    monkeypatch.setenv("SINAN_PROPOSAL_TTL_DAYS", "30")
+    assert Settings().sinan_proposal_ttl_days == 30
