@@ -41,6 +41,10 @@ class ItemOut(BaseModel):
     received_at: datetime | None
     # Opens the source email in Gmail; None in demo mode, whose mail is fake
     gmail_url: str | None
+    # Parts of due_at that were assumed, not written (ADR 0016)
+    zone_assumed: bool
+    time_assumed: bool
+    date_computed: bool
 
 
 class DigestOut(BaseModel):
@@ -82,6 +86,9 @@ def item_out(view: ItemView, live: bool) -> ItemOut:
         sender=view.sender,
         received_at=view.received_at,
         gmail_url=gmail_url(view, live),
+        zone_assumed=view.assumed.zone,
+        time_assumed=view.assumed.time,
+        date_computed=view.assumed.date,
     )
 
 

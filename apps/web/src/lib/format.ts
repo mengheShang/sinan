@@ -29,19 +29,25 @@ export function localDate(value: string): string {
   return format.format(new Date(`${value}T12:00:00Z`));
 }
 
-// Short codes from the parser and validator (ADR 0005, ADR 0007)
+// Short codes from the parser and validator (ADR 0005, ADR 0007, ADR 0016)
 const REVIEW_TEXT: Record<string, string> = {
   no_zone: "No time zone given",
+  unknown_zone: "A time zone Sinan does not know",
+  zone_outside_due: "The email names a time zone the due time left out",
   multiple_zones: "Two different time zones",
   midnight: "“Midnight” could mean either end of the day",
   invalid_time: "The time does not exist",
   no_time: "No time given",
+  vague_time: "The time is tied to a class or a part of the day",
+  time_outside_due: "The quoted text gives a time the due time left out",
   multiple_times: "Two different times",
   numeric_date: "Numeric date: 11/12 could mean two days",
   multiple_dates: "Two different dates",
   invalid_date: "The date does not exist",
   year_unclear: "The year is unclear",
   relative_weekday: "“Next Friday” is ambiguous",
+  relative_event: "The date is counted from another event",
+  relative_span: "The date is a span, such as “in two weeks”",
   weekday_mismatch: "The weekday does not match the date",
   no_date: "No date given",
   zone_dst_mismatch: "The time zone does not fit the date",

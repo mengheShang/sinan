@@ -1,6 +1,12 @@
 // Shapes shared by the proposal list, its buttons and their server actions
 
-export type Due = { due_raw: string | null; due_at: string | null };
+export type Due = {
+  due_raw: string | null;
+  due_at: string | null;
+  zone_assumed: boolean;
+  time_assumed: boolean;
+  date_computed: boolean;
+};
 
 export type Proposal = {
   id: string;

@@ -1,6 +1,7 @@
 """Table-driven tests for explicit deadline parsing. All times are compared in UTC."""
 
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -60,11 +61,10 @@ def test_parsed(raw: str, sent: datetime, expected: datetime) -> None:
 
 
 NEEDS_REVIEW = [
-    # Missing pieces
-    ("Nov 14 11:59pm", SENT, "no_zone"),
-    ("Nov 14 PT", SENT, "no_time"),
+    # Missing pieces. A missing zone or time is assumed since ADR 0016; see
+    # CHANGED_BY_ADR_0016 for the cases that used to be here
     ("11:59pm PT", SENT, "no_date"),
-    ("", SENT, "no_zone"),
+    ("", SENT, "no_date"),
     ("sometime next week PT 5pm", SENT, "no_date"),
     # Numeric dates have two readings
     ("11/14 11:59pm PT", SENT, "numeric_date"),
@@ -175,13 +175,10 @@ def test_parsed_adr_0011(raw: str, sent: datetime, expected: datetime) -> None:
 
 
 NEEDS_REVIEW_ADR_0011 = [
-    # End of day without a stated zone
-    ("Nov 14 EOD", SENT, "no_zone"),
-    ("end of day Friday", SENT, "no_zone"),
     # End of day next to a different time
     ("Nov 14 EOD 5pm PT", SENT, "multiple_times"),
-    # Other "end of" phrases are not end of day
-    ("Nov 14 end of week PT", SENT, "no_time"),
+    # Other "end of" phrases are not end of day, and 23:59 is not assumed
+    ("Nov 14 end of week PT", SENT, "vague_time"),
     # Midnight, numeric dates and conflicts still need review
     ("midnight 14 Nov PT", SENT, "midnight"),
     ("14/11 5pm PT", SENT, "numeric_date"),
@@ -195,8 +192,9 @@ NEEDS_REVIEW_ADR_0011 = [
     ("14 may 2027 5pm PT", SENT, "no_date"),
     # China time only by full name; "CST" next to it is US Central
     ("Nov 14 5pm Beijing time (CST)", SENT, "multiple_zones"),
-    ("Nov 14 5pm China time", SENT, "no_zone"),
-    ("Nov 14 5pm Beijing", SENT, "no_zone"),
+    # A named zone that is not understood is never replaced by the owner's
+    ("Nov 14 5pm China time", SENT, "unknown_zone"),
+    ("Nov 14 5pm Beijing", SENT, "unknown_zone"),
     # A standard or daylight name must fit the date at 23:59
     ("Nov 1 EOD PDT", utc(2026, 10, 25), "zone_dst_mismatch"),
     ("Mar 14 EOD EST", utc(2027, 3, 1), "zone_dst_mismatch"),
@@ -286,3 +284,229 @@ NEEDS_REVIEW_OFFSETS = [
 @pytest.mark.parametrize(("raw", "sent", "reason"), NEEDS_REVIEW_OFFSETS)
 def test_needs_review_offsets(raw: str, sent: datetime, reason: str) -> None:
     assert parse_due(raw, sent) == DueParse(None, reason)
+
+
+# ADR 0016: an assumed zone (the owner's) and an assumed time (23:59)
+ZONE, TIME, BOTH, NONE = (True, False), (False, True), (True, True), (False, False)
+# Wednesday Nov 11 and Friday Nov 13 2026, 09:00 in Los Angeles
+WEDNESDAY = utc(2026, 11, 11, 17, 0)
+FRIDAY = utc(2026, 11, 13, 17, 0)
+# Friday Nov 13, 21:00 in Los Angeles, already Saturday in UTC
+FRIDAY_NIGHT = utc(2026, 11, 14, 5, 0)
+
+PARSED_ADR_0016 = [
+    # Rule 1: no zone means the owner's zone, in winter (PST) and summer (PDT)
+    ("Nov 14 11:59pm", SENT, utc(2026, 11, 15, 7, 59), ZONE),
+    ("Nov 14 5pm", SENT, utc(2026, 11, 15, 1, 0), ZONE),
+    ("Jul 14 5pm", utc(2027, 6, 1), utc(2027, 7, 15, 0, 0), ZONE),
+    ("2027-07-14 9am", utc(2027, 6, 1), utc(2027, 7, 14, 16, 0), ZONE),
+    ("Nov 14 EOD", SENT, utc(2026, 11, 15, 7, 59), ZONE),
+    ("end of day Friday", SENT, utc(2026, 11, 14, 7, 59), ZONE),
+    ("tomorrow 9am", SENT, utc(2026, 11, 11, 17, 0), ZONE),
+    # DST edges in the assumed zone: the day of the change, either side of it
+    ("Nov 1 EOD", utc(2026, 10, 25), utc(2026, 11, 2, 7, 59), ZONE),
+    ("Oct 31 11:59pm", utc(2026, 10, 25), utc(2026, 11, 1, 6, 59), ZONE),
+    ("Nov 1 3am", utc(2026, 10, 25), utc(2026, 11, 1, 11, 0), ZONE),
+    ("Mar 14 2027 3:30am", utc(2027, 3, 1), utc(2027, 3, 14, 10, 30), ZONE),
+    ("Mar 13 2027 11:59pm", utc(2027, 3, 1), utc(2027, 3, 14, 7, 59), ZONE),
+    # Rule 2: no time means 23:59 in the stated or assumed zone
+    ("Nov 14 PT", SENT, utc(2026, 11, 15, 7, 59), TIME),
+    ("Nov 14 ET", SENT, utc(2026, 11, 15, 4, 59), TIME),
+    ("14 Nov Beijing time", SENT, utc(2026, 11, 14, 15, 59), TIME),
+    ("Nov 14", SENT, utc(2026, 11, 15, 7, 59), BOTH),
+    ("Friday Nov 13", SENT, utc(2026, 11, 14, 7, 59), BOTH),
+    ("by Friday", SENT, utc(2026, 11, 14, 7, 59), BOTH),
+    ("tomorrow", SENT, utc(2026, 11, 12, 7, 59), BOTH),
+    ("Jul 14", utc(2027, 6, 1), utc(2027, 7, 15, 6, 59), BOTH),
+    ("Mar 14 2027", utc(2027, 3, 1), utc(2027, 3, 15, 6, 59), BOTH),
+    # Rule 3: the first such weekday strictly after the email's local date
+    ("the first Friday after this email", WEDNESDAY, utc(2026, 11, 14, 7, 59), BOTH),
+    ("the first Friday after this email", FRIDAY, utc(2026, 11, 21, 7, 59), BOTH),
+    ("first Friday after this email", FRIDAY_NIGHT, utc(2026, 11, 21, 7, 59), BOTH),
+    ("first Friday after today at 5pm PT", FRIDAY, utc(2026, 11, 21, 1, 0), NONE),
+    ("the first Fri. after this e-mail 5pm", WEDNESDAY, utc(2026, 11, 14, 1, 0), ZONE),
+    ("the Friday following this message, EOD ET", FRIDAY, utc(2026, 11, 21, 4, 59), NONE),
+    ("first Wednesday after this announcement", WEDNESDAY, utc(2026, 11, 19, 7, 59), BOTH),
+    ("Friday, the first Friday after this email", WEDNESDAY, utc(2026, 11, 14, 7, 59), BOTH),
+    # A weekday alone still counts from the email date itself
+    ("Friday", FRIDAY, utc(2026, 11, 14, 7, 59), BOTH),
+    ("Friday", FRIDAY_NIGHT, utc(2026, 11, 14, 7, 59), BOTH),
+    # A written zone and time are never marked as assumed
+    ("Nov 14 5pm PT", SENT, utc(2026, 11, 15, 1, 0), NONE),
+]
+
+
+@pytest.mark.parametrize(("raw", "sent", "expected", "assumed"), PARSED_ADR_0016)
+def test_parsed_adr_0016(
+    raw: str, sent: datetime, expected: datetime, assumed: tuple[bool, bool]
+) -> None:
+    zone_assumed, time_assumed = assumed
+    assert parse_due(raw, sent) == DueParse(expected, None, zone_assumed, time_assumed)
+
+
+def test_assumed_zone_is_the_owners() -> None:
+    eastern = ZoneInfo("America/New_York")
+    result = parse_due("Nov 14 5pm", SENT, eastern)
+    assert result == DueParse(utc(2026, 11, 14, 22, 0), None, True, False)
+    # "today" counts in the assumed zone: 23:30 Nov 10 in LA is Nov 11 in New York
+    late = utc(2026, 11, 11, 7, 30)
+    assert parse_due("today", late, eastern).due_at == utc(2026, 11, 12, 4, 59)
+    assert parse_due("today", late).due_at == utc(2026, 11, 11, 7, 59)
+
+
+NEEDS_REVIEW_ADR_0016 = [
+    # DST gaps and overlaps still need review in the assumed zone
+    ("Nov 1 1:30am", utc(2026, 10, 25), "ambiguous_time"),
+    ("Mar 14 2027 2:30am", utc(2027, 3, 1), "nonexistent_time"),
+    # Rule 4: numeric dates, midnight, "next", conflicts
+    ("11/14", SENT, "numeric_date"),
+    ("11/14 5pm", SENT, "numeric_date"),
+    ("midnight Nov 14", SENT, "midnight"),
+    ("Nov 14 at midnight", SENT, "midnight"),
+    ("next Friday", SENT, "relative_weekday"),
+    ("next Friday 5pm", SENT, "relative_weekday"),
+    ("Thursday Nov 13", SENT, "weekday_mismatch"),
+    ("Friday or Saturday", SENT, "multiple_dates"),
+    ("first Friday after this email, Nov 20", WEDNESDAY, "multiple_dates"),
+    ("first Friday after this email or Monday", WEDNESDAY, "multiple_dates"),
+    # Rule 4: days counted from another event
+    ("the Friday after the midterm", SENT, "relative_event"),
+    ("the Friday after the midterm 5pm PT", SENT, "relative_event"),
+    ("the first Friday after the midterm", SENT, "relative_event"),
+    ("the Friday before the exam 5pm PT", SENT, "relative_event"),
+    # Without a time, "before" already stops 23:59 from being assumed
+    ("the Friday before the exam", SENT, "vague_time"),
+    ("the day after Nov 14", SENT, "relative_event"),
+    ("Friday following spring break", SENT, "relative_event"),
+    # Rule 4: spans other than "in N days" (rule 5, tested below)
+    ("a week from Friday", SENT, "relative_span"),
+    ("a week from today", SENT, "relative_span"),
+    ("Friday next week", SENT, "relative_span"),
+    # A missing time tied to something else is not 23:59
+    ("Nov 14 before class", SENT, "vague_time"),
+    ("Nov 14 in lecture", SENT, "vague_time"),
+    ("Friday morning", SENT, "vague_time"),
+    ("Friday afternoon PT", SENT, "vague_time"),
+    ("Nov 14 close of business", SENT, "vague_time"),
+    ("before Friday", SENT, "vague_time"),
+    # A named zone that is not understood is never replaced by the owner's
+    ("Nov 14 5pm JST", SENT, "unknown_zone"),
+    ("Nov 14 5pm BST", SENT, "unknown_zone"),
+    ("Nov 14 5pm local time", SENT, "unknown_zone"),
+    ("Nov 14 5pm your time", SENT, "unknown_zone"),
+    ("Nov 14 5pm London time", SENT, "unknown_zone"),
+    ("Nov 14 5pm Hong Kong time", SENT, "unknown_zone"),
+    ("Nov 14 5pm PT (London time)", SENT, "multiple_zones"),
+    ("Nov 14 5pm Central European Time", SENT, "multiple_zones"),
+]
+
+
+@pytest.mark.parametrize(("raw", "sent", "reason"), NEEDS_REVIEW_ADR_0016)
+def test_needs_review_adr_0016(raw: str, sent: datetime, reason: str) -> None:
+    assert parse_due(raw, sent) == DueParse(None, reason)
+
+
+# Cases whose expected result ADR 0016 changed; the comment gives the old one
+CHANGED_BY_ADR_0016 = [
+    # was no_zone: the owner's zone is assumed
+    ("Nov 14 11:59pm", DueParse(utc(2026, 11, 15, 7, 59), None, True, False)),
+    ("Nov 14 EOD", DueParse(utc(2026, 11, 15, 7, 59), None, True, False)),
+    ("end of day Friday", DueParse(utc(2026, 11, 14, 7, 59), None, True, False)),
+    # was no_time: 23:59 is assumed
+    ("Nov 14 PT", DueParse(utc(2026, 11, 15, 7, 59), None, False, True)),
+    # was no_zone: a missing zone no longer stops parsing, so the missing date shows
+    ("", DueParse(None, "no_date")),
+    # was no_time: "end of week" is not a time, and 23:59 is not assumed for it
+    ("Nov 14 end of week PT", DueParse(None, "vague_time")),
+    # was no_zone: a zone is named but not understood
+    ("Nov 14 5pm China time", DueParse(None, "unknown_zone")),
+    ("Nov 14 5pm Beijing", DueParse(None, "unknown_zone")),
+]
+
+
+@pytest.mark.parametrize(("raw", "expected"), CHANGED_BY_ADR_0016)
+def test_changed_by_adr_0016(raw: str, expected: DueParse) -> None:
+    assert parse_due(raw, SENT) == expected
+
+
+def test_flags_only_come_with_a_due_time() -> None:
+    cases = [(raw, sent) for raw, sent, *_ in PARSED_ADR_0016 + NEEDS_REVIEW_ADR_0016]
+    for raw, sent in cases:
+        result = parse_due(raw, sent)
+        if result.due_at is None:
+            assert not result.zone_assumed
+            assert not result.time_assumed
+
+
+# ADR 0016, rule 5: "in N days/weeks" and "within N days/weeks" count from
+# the email's local date; the time and zone follow rules 1 and 2
+COMPUTED = (True, True, True)
+# Saturday Nov 28 2026, Wednesday Oct 28 2026 (PDT) and Wednesday Mar 10 2027
+# (PST), all 09:00 or 10:00 in Los Angeles
+LATE_NOVEMBER = utc(2026, 11, 28, 17, 0)
+BEFORE_FALL_BACK = utc(2026, 10, 28, 17, 0)
+BEFORE_SPRING_FORWARD = utc(2027, 3, 10, 18, 0)
+
+PARSED_COUNTED = [
+    # Digits and words, days and weeks, "in" and "within"
+    ("in 3 days", SENT, utc(2026, 11, 14, 7, 59), COMPUTED),
+    ("in three days", SENT, utc(2026, 11, 14, 7, 59), COMPUTED),
+    ("in two weeks", SENT, utc(2026, 11, 25, 7, 59), COMPUTED),
+    ("in 2 weeks", SENT, utc(2026, 11, 25, 7, 59), COMPUTED),
+    ("within 10 days", SENT, utc(2026, 11, 21, 7, 59), COMPUTED),
+    ("within three weeks", SENT, utc(2026, 12, 2, 7, 59), COMPUTED),
+    ("in a week", SENT, utc(2026, 11, 18, 7, 59), COMPUTED),
+    ("in 1 day", SENT, utc(2026, 11, 12, 7, 59), COMPUTED),
+    # A written time or zone is used, and not marked as assumed
+    ("in 2 weeks 5pm PT", SENT, utc(2026, 11, 25, 1, 0), (False, False, True)),
+    ("in 1 day ET", SENT, utc(2026, 11, 12, 4, 59), (False, True, True)),
+    ("within 3 days at noon", SENT, utc(2026, 11, 13, 20, 0), (True, False, True)),
+    # Late in the month and across the year end
+    ("in 5 days", LATE_NOVEMBER, utc(2026, 12, 4, 7, 59), COMPUTED),
+    ("in two weeks", utc(2026, 12, 28, 18, 0), utc(2027, 1, 12, 7, 59), COMPUTED),
+    # Across a DST change: 23:59 local on the counted day
+    ("in 4 days", BEFORE_FALL_BACK, utc(2026, 11, 2, 7, 59), COMPUTED),
+    ("in 7 days", BEFORE_FALL_BACK, utc(2026, 11, 5, 7, 59), COMPUTED),
+    ("in 3 days", BEFORE_FALL_BACK, utc(2026, 11, 1, 6, 59), COMPUTED),
+    ("in 5 days", BEFORE_SPRING_FORWARD, utc(2027, 3, 16, 6, 59), COMPUTED),
+    # The local send date counts: 21:00 Friday in Los Angeles is Saturday in UTC
+    ("in 2 days", FRIDAY_NIGHT, utc(2026, 11, 16, 7, 59), COMPUTED),
+]
+
+
+@pytest.mark.parametrize(("raw", "sent", "expected", "flags"), PARSED_COUNTED)
+def test_parsed_counted(
+    raw: str, sent: datetime, expected: datetime, flags: tuple[bool, bool, bool]
+) -> None:
+    zone_assumed, time_assumed, date_computed = flags
+    expected_parse = DueParse(expected, None, zone_assumed, time_assumed, date_computed)
+    assert parse_due(raw, sent) == expected_parse
+
+
+NEEDS_REVIEW_COUNTED = [
+    # The same phrase also gives an explicit date: two dates
+    ("in 3 days, Nov 14", SENT, "multiple_dates"),
+    ("Friday in two weeks", SENT, "multiple_dates"),
+    ("tomorrow or in 3 days", SENT, "multiple_dates"),
+    ("in 2 days or in 3 days", SENT, "multiple_dates"),
+    ("in 3 days, the first Friday after this email", SENT, "multiple_dates"),
+    # Vague spans stay in review
+    ("in a few days", SENT, "no_date"),
+    ("in a couple of weeks", SENT, "no_date"),
+    ("in several days", SENT, "no_date"),
+    ("soon", SENT, "no_date"),
+    ("Friday in a few days", SENT, "relative_span"),
+    # Months and zero are not counted
+    ("in two months", SENT, "no_date"),
+    ("in 0 days", SENT, "relative_span"),
+]
+
+
+@pytest.mark.parametrize(("raw", "sent", "reason"), NEEDS_REVIEW_COUNTED)
+def test_needs_review_counted(raw: str, sent: datetime, reason: str) -> None:
+    assert parse_due(raw, sent) == DueParse(None, reason)
+
+
+def test_only_counted_dates_are_marked_computed() -> None:
+    for raw, sent, *_ in PARSED_ADR_0016:
+        assert not parse_due(raw, sent).date_computed

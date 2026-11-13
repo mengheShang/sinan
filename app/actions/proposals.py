@@ -33,6 +33,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import AuditEvent, Item, ItemVersion, Proposal
+from app.items.assumed import assumed_fields, assumed_of
 from app.items.changes import current_version, event
 from app.proposals import EXPIRED, SUPERSEDED, VALID, parse_utc, payload_hash, validity
 
@@ -197,6 +198,8 @@ def apply(session: Session, proposal: Proposal) -> int:
     number = current_version(session, item.id) + 1
     new_status = "open" if item.status in ACTIVE else item.status
     before = {**proposal.payload["before"], "status": item.status}
+    # The new due time's assumed parts (ADR 0016); none in older payloads
+    flags = assumed_fields(assumed_of(after))
     version = ItemVersion(
         item_id=item.id,
         version=number,
@@ -209,6 +212,7 @@ def apply(session: Session, proposal: Proposal) -> int:
             "status": new_status,
             "review": None,
             "proposal_id": str(proposal.id),
+            **flags,
         },
         evidence=proposal.payload.get("evidence"),
         message_id=proposal.message_id,

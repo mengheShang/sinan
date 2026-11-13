@@ -26,6 +26,7 @@ from app.actions.proposals import (
     reject,
 )
 from app.db.models import Account, Item, Message, Proposal
+from app.items.assumed import assumed_of
 from app.proposals import HASH_PATTERN
 from apps.api.clock import ClockDep
 from apps.api.digest import SettingsDep
@@ -39,6 +40,10 @@ Status = Literal["pending", "approved", "rejected", "expired", "superseded", "ex
 class DueOut(BaseModel):
     due_raw: str | None
     due_at: datetime | None
+    # Parts of due_at that were assumed, not written (ADR 0016)
+    zone_assumed: bool
+    time_assumed: bool
+    date_computed: bool
 
 
 class ProposalOut(BaseModel):
@@ -65,7 +70,14 @@ class ProposalOut(BaseModel):
 
 def due_out(part: Any) -> DueOut:
     data = part if isinstance(part, dict) else {}
-    return DueOut(due_raw=data.get("due_raw"), due_at=data.get("due_at"))
+    flags = assumed_of(data)
+    return DueOut(
+        due_raw=data.get("due_raw"),
+        due_at=data.get("due_at"),
+        zone_assumed=flags.zone,
+        time_assumed=flags.time,
+        date_computed=flags.date,
+    )
 
 
 def gmail_url(msg: Message, email: str, live: bool) -> str | None:

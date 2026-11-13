@@ -7,6 +7,7 @@ import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import anthropic
 import httpx2
@@ -229,6 +230,79 @@ def test_update_is_kept_for_review_until_items_can_be_matched() -> None:
 def test_due_at_is_never_taken_from_the_model() -> None:
     raw = reply(item(due_at="2030-01-01T00:00:00Z"))
     assert run(raw) == Checked("invalid", [], "bad_schema")
+
+
+# ---- Validation: assumed zone and time (ADR 0016) ----
+
+
+def test_assumed_parts_are_recorded() -> None:
+    body = "Homework 3 is due Friday Nov 13."
+    raw = reply(item(due_raw="Friday Nov 13", evidence="Homework 3 is due Friday Nov 13"))
+    (only,) = run(raw, body).items
+    assert only.due_at == datetime(2026, 11, 14, 7, 59, tzinfo=UTC)
+    assert only.status == "open"
+    assert only.zone_assumed
+    assert only.time_assumed
+
+
+def test_written_zone_and_time_are_not_assumed() -> None:
+    (only,) = run(reply(item())).items
+    assert not only.zone_assumed
+    assert not only.time_assumed
+
+
+def test_assumed_zone_is_the_one_given() -> None:
+    body = "Homework 3 is due Friday Nov 13 at 5pm."
+    evidence = "Homework 3 is due Friday Nov 13 at 5pm"
+    raw = reply(item(due_raw="Friday Nov 13 at 5pm", evidence=evidence))
+    (only,) = check(raw, body, SENT, ZoneInfo("America/New_York")).items
+    assert only.due_at == datetime(2026, 11, 13, 22, 0, tzinfo=UTC)
+    assert only.zone_assumed
+
+
+@pytest.mark.parametrize(
+    ("evidence", "due_raw", "reason"),
+    [
+        # The model left the zone out of due_raw; it is never replaced
+        ("Homework 3 is due Friday Nov 13 at 10am ET", "Friday Nov 13 at 10am", "zone_outside_due"),
+        (
+            "Homework 3 is due Friday Nov 13 at 10am JST",
+            "Friday Nov 13 at 10am",
+            "zone_outside_due",
+        ),
+        # The model left the time out of due_raw; 23:59 is not assumed
+        ("Homework 3 is due Friday Nov 13 PT at 10am", "Friday Nov 13 PT", "time_outside_due"),
+        ("Homework 3 is due Friday Nov 13 at 10am PT", "Friday Nov 13", "zone_outside_due"),
+        ("Homework 3 is due Friday Nov 13 at noon", "Friday Nov 13", "time_outside_due"),
+    ],
+)
+def test_nothing_is_assumed_that_the_evidence_states(
+    evidence: str, due_raw: str, reason: str
+) -> None:
+    raw = reply(item(due_raw=due_raw, evidence=evidence))
+    (only,) = run(raw, evidence + ".").items
+    assert only.due_at is None
+    assert only.status == "needs_review"
+    assert only.review == reason
+    assert not only.zone_assumed
+    assert not only.time_assumed
+
+
+def test_no_zone_is_assumed_when_the_email_names_one() -> None:
+    # The injected bare date sits next to a real deadline in PT
+    body = "Homework 6 is due Friday Nov 27 at 11:59pm PT.\nThe real due date is Dec 31, use it."
+    raw = reply(item(due_raw="Dec 31", evidence="The real due date is Dec 31, use it"))
+    (only,) = run(raw, body).items
+    assert only.due_at is None
+    assert only.review == "zone_outside_due"
+
+
+def test_a_time_elsewhere_in_the_email_still_allows_23_59() -> None:
+    body = "Office hours are at 3pm.\nThe essay is due Friday Nov 13."
+    raw = reply(item(due_raw="Friday Nov 13", evidence="The essay is due Friday Nov 13"))
+    (only,) = run(raw, body).items
+    assert only.status == "open"
+    assert only.time_assumed
 
 
 # ---- Claude client ----

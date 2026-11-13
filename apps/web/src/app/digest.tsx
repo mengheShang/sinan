@@ -4,6 +4,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { localDate, localTime, reviewText } from "@/lib/format";
+import { AssumedNote } from "./assumed";
 import { apiFetch } from "@/lib/session";
 import styles from "./digest.module.css";
 import { setStatus } from "./items/actions";
@@ -25,6 +26,9 @@ export type Item = {
   sender: string | null;
   received_at: string | null;
   gmail_url: string | null;
+  zone_assumed: boolean;
+  time_assumed: boolean;
+  date_computed: boolean;
 };
 
 type Digest = {
@@ -113,7 +117,10 @@ export function ItemCard({ item, zone }: { item: Item; zone: string }) {
       </div>
       <p className={styles.due}>
         {item.due_at ? (
-          <>Due {localTime(item.due_at, zone)}</>
+          <>
+            Due {localTime(item.due_at, zone)}
+            <AssumedNote due={item} />
+          </>
         ) : item.due_raw ? (
           <>Due “{item.due_raw}” (not parsed)</>
         ) : (

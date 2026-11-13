@@ -1,0 +1,10 @@
+.assumed {
+  font-size: 13px;
+  color: #92400e;
+}
+
+@media (prefers-color-scheme: dark) {
+  .assumed {
+    color: #fcd34d;
+  }
+}

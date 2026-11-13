@@ -1,30 +1,43 @@
 """Turn an explicit deadline phrase into a UTC time, or say why it needs review.
 
 Pure and deterministic: no network, no clock, no LLM. The rules (ADR 0005,
-extended by ADR 0011):
+extended by ADR 0011 and ADR 0016):
 
-- A time zone is required. Pacific, Mountain, Central, Eastern, UTC/GMT,
-  AoE and China time ("Beijing time", "China Standard Time") are understood.
-  "CST" is always US Central. Standard or daylight names (PST, PDT, ...) must
-  match the date: "PST" on a summer date is ambiguous.
+- Pacific, Mountain, Central, Eastern, UTC/GMT, AoE and China time
+  ("Beijing time", "China Standard Time") are understood. "CST" is always
+  US Central. Standard or daylight names (PST, PDT, ...) must match the
+  date: "PST" on a summer date is ambiguous.
+- No zone at all: the owner's zone (SINAN_TIMEZONE) is assumed and the
+  result says so (ADR 0016, rule 1). A zone that is named but not
+  understood ("JST", "London time", "local time") still needs review.
 - A GMT/UTC offset written right after the name ("GMT+8", "UTC-05:30",
   "GMT+0800") is a fixed offset with the literal sign: GMT+8 is UTC+08:00.
   Hours run from -12 to +14 and minutes are 00, 30 or 45. Any other
   offset-like text ("GMT +8", "UTC+15", "PT+1") needs review.
-- A time is required. "noon" is 12:00; "end of day" (or "EOD") is 23:59 in
-  the stated zone; "midnight" is ambiguous.
+- "noon" is 12:00; "end of day" (or "EOD") is 23:59 in the zone;
+  "midnight" is ambiguous. No time at all: 23:59 is assumed and the result
+  says so (ADR 0016, rule 2), unless the phrase ties the time to a class or
+  part of the day ("before class", "morning").
 - The date is a month name and day ("Nov 14", "November 14th, 2026"), a day
   and month name ("14 November", "14 Nov 2026"; day-first "May" needs its
   capital, since "2 may be late" is the verb), an ISO date, a weekday
-  ("Friday"), or today / tonight / tomorrow. Numeric dates such as 11/14
-  always need review, because 11/12 has two readings.
+  ("Friday"), today / tonight / tomorrow, "the first Friday after this
+  email" (ADR 0016, rule 3), or "in N days/weeks" or "within N days/weeks"
+  (ADR 0016, rule 5): the email's local date plus N days or N weeks, and
+  the result says the date was computed. Numeric dates such as 11/14 always
+  need review, because 11/12 has two readings.
 - A missing year is inferred from the email date: the one year that puts the
   date between 30 days before and 335 days after the email.
 - A weekday alone means the first such day on or after the email date, in the
-  deadline's time zone. "next Friday" needs review.
+  deadline's time zone. "next Friday" needs review. "first Friday after
+  this email" (or "after today") is the first Friday strictly after it.
+- Dates counted from another event ("the Friday after the midterm"), vague
+  spans ("in a few days") and other spans ("a week from Friday", "in two
+  months") need review.
 - A weekday next to a date must agree with it.
 - Wall times that do not exist, or happen twice, on a DST change need review,
-  unless a standard or daylight name settles it.
+  unless a standard or daylight name settles it. This holds in an assumed
+  zone too.
 """
 
 import re
@@ -162,13 +175,87 @@ OFFSET_MINUTES = (0, 30, 45)
 EARLIEST_OFFSET = -12 * 60
 LATEST_OFFSET = 14 * 60
 
+# The zone assumed when none is written: SINAN_TIMEZONE's default (ADR 0016)
+HOME = ZoneInfo("America/Los_Angeles")
+# Zones that are named but not understood. Assuming the owner's zone for
+# them would silently give a wrong time, so they need review.
+UNKNOWN_ABBREVIATIONS = (
+    "hst akst akdt ast adt nst ndt bst ist cet cest eet eest msk jst kst hkt "
+    "sgt pht ict wib aest aedt acst acdt awst nzst nzdt"
+)
+UNKNOWN_PLACES = (
+    "local|campus|your|my|our|china|chinese|hong kong|taipei|taiwan|tokyo|japan|"
+    "japanese|seoul|korea|korean|singapore|india|indian|london|uk|british|paris|"
+    "berlin|europe|european|sydney|australia|australian|hawaii|hawaiian|alaska|"
+    "alaskan|atlantic|arizona|new york|california|los angeles"
+)
+UNKNOWN_ZONE_RE = re.compile(
+    r"\b(?:" + UNKNOWN_ABBREVIATIONS.replace(" ", "|") + r")\b"
+    r"|\b(?:" + UNKNOWN_PLACES + r")\s+(?:standard\s+|daylight\s+)?time\b"
+    r"|\b(?:beijing|shanghai)\b(?!\s+time)"
+)
+# Words that tie a missing time to something else, so 23:59 is not assumed
+VAGUE_TIME_RE = re.compile(
+    r"\b(?:morning|afternoon|evening|night|class|lecture|lab|section|recitation"
+    r"|discussion|office\s+hours|cob|close\s+of\s+business|start\s+of|beginning\s+of"
+    r"|end\s+of|before|by\s+the\s+time)\b"
+)
+TIME_WORD_RE = re.compile(r"\b(?:noon|midnight)\b")
+WEEKDAY = r"(" + words(WEEKDAYS) + r")\.?"
+# "the first Friday after this email", "Friday after today" (ADR 0016, rule 3)
+FIRST_AFTER_RE = re.compile(
+    r"\b(?:the\s+)?(?:first\s+)?" + WEEKDAY + r"\s+(?:after|following)\s+"
+    r"(?:this\s+(?:e-?mail|message|mail|announcement|post)|today)\b"
+)
+# A day counted from another event: "the Friday after the midterm"
+EVENT_RE = re.compile(
+    r"\b(?:after|following)\b|\b(?:day|week|" + words(WEEKDAYS) + r")s?\s+before\b"
+)
+NUMBER_WORDS = (
+    "a|an|one|two|three|four|five|six|seven|eight|nine|ten|a few|a couple of|couple of|several"
+)
+# Counts for "in N days" (ADR 0016, rule 5): digits or simple words
+COUNTS = {
+    "a": 1,
+    "an": 1,
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+}
+UNIT_DAYS = {"day": 1, "week": 7}
+# "in 3 days", "within two weeks"; "in a few days" does not match
+COUNTED_RE = re.compile(r"\b(?:in|within)\s+(\d{1,2}|" + "|".join(COUNTS) + r")\s+(day|week)s?\b")
+# A span: "Friday in two weeks", "a week from today", "Friday next week"
+SPAN_RE = re.compile(
+    r"\bin\s+(?:\d+|" + NUMBER_WORDS + r")\s+(?:day|week|month)s?\b"
+    r"|\b(?:day|week|month)s?\s+from\b"
+    r"|\bnext\s+(?:week|month)\b"
+)
+
 
 @dataclass(frozen=True)
 class DueParse:
-    """Exactly one field is set: the UTC due time, or why a person must check it."""
+    """Exactly one of `due_at` and `reason` is set: the UTC due time, or why a
+    person must check it. The flags say which parts of a due time were
+    assumed (ADR 0016); both are False when `due_at` is None."""
 
     due_at: datetime | None
     reason: str | None
+    # No zone was written, so the owner's zone was used
+    zone_assumed: bool = False
+    # No time was written, so 23:59 was used
+    time_assumed: bool = False
+    # The date is the email's date plus a count ("in 3 days")
+    date_computed: bool = False
 
 
 def review(reason: str) -> DueParse:
@@ -225,17 +312,22 @@ def find_offsets(text: str) -> tuple[str, set[Zone]] | str:
     return rest, zones
 
 
-def find_zone(text: str, offsets: set[Zone]) -> Zone | str:
+def find_zone(text: str, offsets: set[Zone]) -> Zone | str | None:
+    """The written zone, a reason it needs review, or None when none is written."""
     names = set(ZONE_RE.findall(text))
     zones = {ZONES[n] for n in names} | offsets
+    # Known names go first, so "China Standard Time" is not read as unknown
+    if UNKNOWN_ZONE_RE.search(ZONE_RE.sub(" ", text)):
+        return "multiple_zones" if zones else "unknown_zone"
     if not zones:
-        return "no_zone"
+        return None
     if len(zones) > 1:
         return "multiple_zones"
     return zones.pop()
 
 
-def find_time(text: str) -> time | str:
+def find_time(text: str) -> time | str | None:
+    """The written time, a reason it needs review, or None when none is written."""
     if "midnight" in text:
         return "midnight"
     found: list[time] = []
@@ -255,7 +347,7 @@ def find_time(text: str) -> time | str:
             return "invalid_time"
         found.append(time(hour, minute))
     if not found:
-        return "no_time"
+        return "vague_time" if VAGUE_TIME_RE.search(text) else None
     if len(set(found)) > 1:
         return "multiple_times"
     return found[0]
@@ -327,7 +419,41 @@ def resolve_year(parts: DateParts, sent: date) -> date | str:
     return options[0]
 
 
-def find_day(text: str, cased: str, sent: date) -> date | str:
+def first_after(text: str) -> tuple[str, set[int]]:
+    """Weekdays of "first Friday after this email" phrases, and the text
+    without them, so their "today" or "Friday" is not read again."""
+    found = {WEEKDAYS[w] for w in FIRST_AFTER_RE.findall(text)}
+    rest = FIRST_AFTER_RE.sub(" ", text)
+    return rest, found
+
+
+def counted_days(text: str) -> tuple[str, set[int]] | str:
+    """Day counts of "in N days" phrases, and the text without them."""
+    found: set[int] = set()
+    for count_s, unit in COUNTED_RE.findall(text):
+        count = int(count_s) if count_s.isdigit() else COUNTS[count_s]
+        if count < 1:
+            return "relative_span"
+        found.add(count * UNIT_DAYS[unit])
+    rest = COUNTED_RE.sub(" ", text)
+    return rest, found
+
+
+def strictly_after(sent: date, weekday: int) -> date:
+    """The first `weekday` after `sent`, never `sent` itself."""
+    ahead = (weekday - sent.weekday() - 1) % 7 + 1
+    return sent + timedelta(days=ahead)
+
+
+def find_day(
+    text: str,
+    cased: str,
+    sent: date,
+    after: set[int] | None = None,
+    counted: set[int] | None = None,
+) -> date | str:
+    """The due day. `after` holds weekdays of "first ... after this email"
+    phrases and `counted` the day counts of "in N days" phrases."""
     weekdays = WEEKDAY_RE.findall(text)
     relative = set(RELATIVE_RE.findall(text))
     written = find_date(text, cased)
@@ -336,6 +462,15 @@ def find_day(text: str, cased: str, sent: date) -> date | str:
     if any(word == "next" for word, _ in weekdays):
         return "relative_weekday"
     named = {WEEKDAYS[w] for _, w in weekdays}
+    if counted:
+        # Any other date next to a count is a second date (ADR 0016, rule 5)
+        if len(counted) > 1 or after or written is not None or relative or named:
+            return "multiple_dates"
+        return sent + timedelta(days=next(iter(counted)))
+    if after:
+        if len(after) > 1 or written is not None or relative or named - after:
+            return "multiple_dates"
+        return strictly_after(sent, next(iter(after)))
     if len(named) > 1:
         return "multiple_dates"
     if written is not None:
@@ -377,8 +512,35 @@ def place(day: date, at: time, zone: Zone) -> datetime | str:
     return first
 
 
-def parse_due(due_raw: str, sent_at: datetime) -> DueParse:
-    """Parse `due_raw` against the email's send time (timezone-aware)."""
+def names_zone(text: str) -> bool:
+    """Whether the text names any zone or offset, understood or not."""
+    lowered = normalize(text)
+    if ZONE_RE.search(lowered) or OFFSET_LIKE_RE.search(lowered):
+        return True
+    return UNKNOWN_ZONE_RE.search(lowered) is not None
+
+
+def names_time(text: str) -> bool:
+    """Whether the text gives any clock time, valid or not."""
+    lowered = normalize(text)
+    patterns = (TIME_12_RE, TIME_24_RE, END_OF_DAY_RE, TIME_WORD_RE)
+    return any(p.search(lowered) for p in patterns)
+
+
+def counted_elsewhere(text: str) -> str | None:
+    """Why a found day is not the real one: it counts from an event or a span."""
+    if SPAN_RE.search(text):
+        return "relative_span"
+    if EVENT_RE.search(text):
+        return "relative_event"
+    return None
+
+
+def parse_due(due_raw: str, sent_at: datetime, home: tzinfo = HOME) -> DueParse:
+    """Parse `due_raw` against the email's send time (timezone-aware).
+
+    `home` is the zone assumed when none is written (SINAN_TIMEZONE).
+    """
     if sent_at.tzinfo is None:
         raise ValueError("sent_at must be timezone-aware")
     cased = tidy(due_raw)
@@ -386,18 +548,30 @@ def parse_due(due_raw: str, sent_at: datetime) -> DueParse:
     if isinstance(offsets, str):
         return review(offsets)
     text, fixed = offsets
-    zone = find_zone(text, fixed)
-    if isinstance(zone, str):
-        return review(zone)
-    at = find_time(text)
-    if isinstance(at, str):
-        return review(at)
+    found_zone = find_zone(text, fixed)
+    if isinstance(found_zone, str):
+        return review(found_zone)
+    zone = Zone(home, None) if found_zone is None else found_zone
+    found_time = find_time(text)
+    if isinstance(found_time, str):
+        return review(found_time)
+    at = END_OF_DAY if found_time is None else found_time
     # Relative days count in the deadline's own time zone
     sent_local = sent_at.astimezone(zone.region).date()
-    day = find_day(text, cased, sent_local)
+    text, after = first_after(text)
+    spans = counted_days(text)
+    if isinstance(spans, str):
+        return review(spans)
+    text, counted = spans
+    day = find_day(text, cased, sent_local, after, counted)
     if isinstance(day, str):
         return review(day)
+    elsewhere = counted_elsewhere(text)
+    if elsewhere is not None:
+        return review(elsewhere)
     placed = place(day, at, zone)
     if isinstance(placed, str):
         return review(placed)
-    return DueParse(placed.astimezone(UTC), None)
+    due_at = placed.astimezone(UTC)
+    computed = bool(counted)
+    return DueParse(due_at, None, found_zone is None, found_time is None, computed)

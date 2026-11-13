@@ -8,6 +8,9 @@ For each message without a run for the current prompt version:
    per cycle (ADR 0007).
 3. The reply is validated. Valid items are saved with their first
    `item_versions` row, which points at the message, the run and the evidence.
+   Its `after` data also says whether the due time's zone or time was
+   assumed, or its date computed from the email date (ADR 0016):
+   `zone_assumed`, `time_assumed` and `date_computed`.
 4. An item the model marks as an update, with a parsed due time, is matched
    to the item it changes (app/items/changes.py). One match becomes a
    pending proposal instead of a new item; several matches or none save the
@@ -23,12 +26,13 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import Account, AuditEvent, ExtractionRun, Item, ItemVersion, Message
+from app.extraction.deadlines import HOME
 from app.extraction.prefilter import Envelope, Rules, decide
 from app.extraction.prompt import PROMPT, PROMPT_HASH, PROMPT_VERSION, prepare
 from app.extraction.validate import Checked, ValidItem, check
@@ -111,6 +115,9 @@ def after_fields(item: ValidItem) -> dict[str, object]:
         "status": item.status,
         "review": item.review,
         "model_change_type": item.change_type,
+        "zone_assumed": item.zone_assumed,
+        "time_assumed": item.time_assumed,
+        "date_computed": item.date_computed,
     }
 
 
@@ -208,10 +215,12 @@ Clock = Callable[[], datetime]
 
 @dataclass(frozen=True)
 class ChangePolicy:
-    """How proposals made from deadline changes are timed."""
+    """How proposals made from deadline changes are timed, and the owner's
+    zone, assumed when a due time names none."""
 
     ttl_days: int
     clock: Clock
+    home: tzinfo = HOME
 
 
 def extract_one(
@@ -234,7 +243,7 @@ def extract_one(
         counts.errors += 1
         return
     ms = int((time.monotonic() - start) * 1000)
-    checked = check(raw, msg.body_text or "", when)
+    checked = check(raw, msg.body_text or "", when, policy.home)
     ctx = Context(extractor.model, ms, policy.clock(), policy.ttl_days)
     counts.items += save_checked(session, msg, checked, ctx, counts)
     if checked.status == "ok":
@@ -256,14 +265,15 @@ def extract_pending(
     cap: int,
     ttl_days: int = 7,
     clock: Clock = utc_now,
+    home: tzinfo = HOME,
 ) -> Counts:
     """Process pending messages, sending at most `cap` to the model. Commits each one.
 
     `ttl_days` is SINAN_PROPOSAL_TTL_DAYS and `clock` gives the creation time,
-    both for proposals made from changes.
+    both for proposals made from changes. `home` is SINAN_TIMEZONE.
     """
     counts = Counts()
-    policy = ChangePolicy(ttl_days, clock)
+    policy = ChangePolicy(ttl_days, clock, home)
     sent = 0
     for msg_id, role in pending(session):
         msg = session.get_one(Message, msg_id)

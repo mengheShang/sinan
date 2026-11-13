@@ -48,6 +48,7 @@ from app.db.models import (
     Message,
     Proposal,
 )
+from app.items.assumed import NOTHING, Assumed, assumed_of
 from app.items.timing import Phase, is_held, phase
 
 DUE_WINDOW = timedelta(days=7)
@@ -197,6 +198,8 @@ class ItemView:
     received_at: datetime | None
     account_email: str | None
     provider_msg_id: str | None
+    # Parts of due_at that were assumed, not written (ADR 0016)
+    assumed: Assumed = NOTHING
 
 
 @dataclass(frozen=True)
@@ -224,7 +227,7 @@ def newest(condition: Any) -> Any:
     return query.subquery()
 
 
-def item_query() -> Select[Any, Any, Any, Any, Any]:
+def item_query() -> Select[Any, Any, Any, Any, Any, Any]:
     """Items with their latest review code, evidence and source message.
 
     The review code comes from the newest version that sets one, and the
@@ -233,16 +236,19 @@ def item_query() -> Select[Any, Any, Any, Any, Any]:
     """
     review = newest(ItemVersion.after.has_key("review"))
     source = newest(ItemVersion.evidence.is_not(None))
+    # The version that set the due time holds its assumed parts (ADR 0016)
+    due = newest(ItemVersion.after.has_key("due_at"))
     return (
-        select(Item, review.c.after, source.c.evidence, Message, Account.email)
+        select(Item, review.c.after, source.c.evidence, Message, Account.email, due.c.after)
         .outerjoin(review, review.c.item_id == Item.id)
         .outerjoin(source, source.c.item_id == Item.id)
         .outerjoin(Message, Message.id == source.c.message_id)
         .outerjoin(Account, Account.id == Message.account_id)
+        .outerjoin(due, due.c.item_id == Item.id)
     )
 
 
-def to_view(row: Row[Any, Any, Any, Any, Any]) -> ItemView:
+def to_view(row: Row[Any, Any, Any, Any, Any, Any]) -> ItemView:
     item: Item = row[0]
     after: dict[str, Any] | None = row[1]
     evidence: str | None = row[2]
@@ -265,6 +271,7 @@ def to_view(row: Row[Any, Any, Any, Any, Any]) -> ItemView:
         received_at=msg.received_at if msg else None,
         account_email=email,
         provider_msg_id=msg.provider_msg_id if msg else None,
+        assumed=assumed_of(row[5]),
     )
 
 
