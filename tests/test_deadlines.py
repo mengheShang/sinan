@@ -222,3 +222,67 @@ def test_needs_review_adr_0011(raw: str, sent: datetime, reason: str) -> None:
 )
 def test_numbers_before_a_month_are_not_days(raw: str) -> None:
     assert parse_due(raw, SENT) == DueParse(utc(2026, 11, 15, 7, 59), None)
+
+
+# ADR 0011 decision 7: strict GMT/UTC offsets with the literal sign
+PARSED_OFFSETS = [
+    # Positive and negative whole hours
+    ("Nov 14 5pm GMT+8", SENT, utc(2026, 11, 14, 9, 0)),
+    ("Nov 14 5pm UTC-5", SENT, utc(2026, 11, 14, 22, 0)),
+    # Minutes, with and without a leading zero on the hour
+    ("Nov 14 5pm UTC+05:30", SENT, utc(2026, 11, 14, 11, 30)),
+    ("Nov 14 5pm UTC+8:00", SENT, utc(2026, 11, 14, 9, 0)),
+    ("Nov 14 5pm UTC+5:45", SENT, utc(2026, 11, 14, 11, 15)),
+    ("Nov 14 5pm UTC-03:30", SENT, utc(2026, 11, 14, 20, 30)),
+    # The four-digit form
+    ("Nov 14 5pm GMT+0800", SENT, utc(2026, 11, 14, 9, 0)),
+    ("Nov 14 5pm UTC-0500", SENT, utc(2026, 11, 14, 22, 0)),
+    # The ends of the range
+    ("Nov 14 5pm UTC+14", SENT, utc(2026, 11, 14, 3, 0)),
+    ("Nov 14 5pm UTC-12", SENT, utc(2026, 11, 15, 5, 0)),
+    ("Nov 14 5pm UTC+00", SENT, utc(2026, 11, 14, 17, 0)),
+    # Offsets work with end of day, relative days and day-first dates
+    ("Nov 14 EOD UTC+8", SENT, utc(2026, 11, 14, 15, 59)),
+    ("tomorrow 9am UTC+8", SENT, utc(2026, 11, 12, 1, 0)),
+    ("GMT+8 14 May 2027 5pm", SENT, utc(2027, 5, 14, 9, 0)),
+    # The same offset written twice is one zone
+    ("Nov 14 5pm GMT+8 (UTC+08:00)", SENT, utc(2026, 11, 14, 9, 0)),
+    # No DST: the US fall-back night does not matter to a fixed offset
+    ("Nov 1 1:30am UTC-8", utc(2026, 10, 25), utc(2026, 11, 1, 9, 30)),
+]
+
+
+@pytest.mark.parametrize(("raw", "sent", "expected"), PARSED_OFFSETS)
+def test_parsed_offsets(raw: str, sent: datetime, expected: datetime) -> None:
+    assert parse_due(raw, sent) == DueParse(expected, None)
+
+
+def test_offset_sign_is_literal() -> None:
+    # GMT+8 is UTC+08:00, not Etc/GMT+8 (UTC-8), which would give 01:00Z Nov 15
+    result = parse_due("Nov 14 5pm GMT+8", SENT)
+    assert result.due_at == utc(2026, 11, 14, 9, 0)
+
+
+NEEDS_REVIEW_OFFSETS = [
+    # A space between the zone and the sign
+    ("Nov 14 5pm GMT +8", SENT, "bad_offset"),
+    ("Nov 14 5pm UTC - 5", SENT, "bad_offset"),
+    # Hours out of range
+    ("Nov 14 5pm UTC+15", SENT, "bad_offset"),
+    ("Nov 14 5pm UTC-13", SENT, "bad_offset"),
+    ("Nov 14 5pm UTC+14:30", SENT, "bad_offset"),
+    # Odd minutes or digit counts
+    ("Nov 14 5pm GMT+8:20", SENT, "bad_offset"),
+    ("Nov 14 5pm GMT+800", SENT, "bad_offset"),
+    # An offset after a regional zone
+    ("Nov 14 5pm PT+1", SENT, "bad_offset"),
+    ("Nov 14 5pm EST-5", SENT, "bad_offset"),
+    # An offset and a different zone conflict
+    ("Nov 14 5pm GMT+8 PT", SENT, "multiple_zones"),
+    ("Nov 14 5pm GMT+8 or GMT+9", SENT, "multiple_zones"),
+]
+
+
+@pytest.mark.parametrize(("raw", "sent", "reason"), NEEDS_REVIEW_OFFSETS)
+def test_needs_review_offsets(raw: str, sent: datetime, reason: str) -> None:
+    assert parse_due(raw, sent) == DueParse(None, reason)

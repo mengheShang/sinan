@@ -7,6 +7,10 @@ extended by ADR 0011):
   AoE and China time ("Beijing time", "China Standard Time") are understood.
   "CST" is always US Central. Standard or daylight names (PST, PDT, ...) must
   match the date: "PST" on a summer date is ambiguous.
+- A GMT/UTC offset written right after the name ("GMT+8", "UTC-05:30",
+  "GMT+0800") is a fixed offset with the literal sign: GMT+8 is UTC+08:00.
+  Hours run from -12 to +14 and minutes are 00, 30 or 45. Any other
+  offset-like text ("GMT +8", "UTC+15", "PT+1") needs review.
 - A time is required. "noon" is 12:00; "end of day" (or "EOD") is 23:59 in
   the stated zone; "midnight" is ambiguous.
 - The date is a month name and day ("Nov 14", "November 14th, 2026"), a day
@@ -138,7 +142,7 @@ NOT_HOUR = r"(?![:.]\d)(?!\s*(?:am|pm)\b)"
 MONTH_RE = re.compile(MONTH + r"\s+" + DAY + NOT_HOUR + YEAR)
 # A day before a month is not right after ":", "-", "." or a digit, so the
 # "59" in "23:59 November 14" is not a day
-NOT_MINUTE = r"(?<![:\-.\d])"
+NOT_MINUTE = r"(?<![:\-+.\d])"
 # "14 Nov", "14th November 2026". Matched on text that keeps its case, so
 # "May" can be told from the verb "may" (see day_first_dates)
 DAY_FIRST_RE = re.compile(NOT_MINUTE + DAY + r"\s+" + MONTH + YEAR, re.IGNORECASE)
@@ -150,6 +154,13 @@ TIME_12_RE = re.compile(r"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b")
 TIME_24_RE = re.compile(r"\b(\d{1,2}):(\d{2})\b(?!\s*(?:am|pm))")
 END_OF_DAY_RE = re.compile(r"\b(?:end[\s-]+of[\s-]+(?:the[\s-]+)?day|eod)\b")
 END_OF_DAY = time(23, 59)
+# Any zone name followed by a sign and digits looks like an offset
+OFFSET_LIKE_RE = re.compile(r"\b(?:" + words(ZONES) + r")\s*[+-]\s*\d[\d:]*")
+# The one accepted shape: gmt/utc, the sign, then hh, hhmm or h:mm
+OFFSET_RE = re.compile(r"(?:gmt|utc)([+-])(?:(\d{2})(\d{2})|(\d{1,2})(?::(\d{2}))?)")
+OFFSET_MINUTES = (0, 30, 45)
+EARLIEST_OFFSET = -12 * 60
+LATEST_OFFSET = 14 * 60
 
 
 @dataclass(frozen=True)
@@ -176,11 +187,49 @@ def normalize(text: str) -> str:
     return lowered.replace("a.m.", "am").replace("p.m.", "pm")
 
 
-def find_zone(text: str) -> Zone | str:
+def offset_minutes(match: re.Match[str]) -> int | None:
+    """The signed offset in minutes, or None when it is out of range."""
+    sign, hour4, minute4, hour_s, minute_s = match.groups()
+    hour = int(hour4 or hour_s)
+    minute = int(minute4 or minute_s or 0)
+    if minute not in OFFSET_MINUTES:
+        return None
+    total = hour * 60 + minute
+    signed = -total if sign == "-" else total
+    if not EARLIEST_OFFSET <= signed <= LATEST_OFFSET:
+        return None
+    return signed
+
+
+def offset_zone(span: str) -> Zone | None:
+    """A fixed zone from the literal sign; never Etc/GMT+N, whose sign flips."""
+    strict = OFFSET_RE.fullmatch(span)
+    if strict is None:
+        return None
+    minutes = offset_minutes(strict)
+    if minutes is None:
+        return None
+    delta = timedelta(minutes=minutes)
+    return Zone(timezone(delta), delta)
+
+
+def find_offsets(text: str) -> tuple[str, set[Zone]] | str:
+    """Offset zones, and the text without them so "8:00" is not a time."""
+    zones: set[Zone] = set()
+    for match in OFFSET_LIKE_RE.finditer(text):
+        zone = offset_zone(match.group(0))
+        if zone is None:
+            return "bad_offset"
+        zones.add(zone)
+    rest = OFFSET_LIKE_RE.sub(" ", text)
+    return rest, zones
+
+
+def find_zone(text: str, offsets: set[Zone]) -> Zone | str:
     names = set(ZONE_RE.findall(text))
-    if not names:
+    zones = {ZONES[n] for n in names} | offsets
+    if not zones:
         return "no_zone"
-    zones = {ZONES[n] for n in names}
     if len(zones) > 1:
         return "multiple_zones"
     return zones.pop()
@@ -332,9 +381,12 @@ def parse_due(due_raw: str, sent_at: datetime) -> DueParse:
     """Parse `due_raw` against the email's send time (timezone-aware)."""
     if sent_at.tzinfo is None:
         raise ValueError("sent_at must be timezone-aware")
-    text = normalize(due_raw)
     cased = tidy(due_raw)
-    zone = find_zone(text)
+    offsets = find_offsets(normalize(due_raw))
+    if isinstance(offsets, str):
+        return review(offsets)
+    text, fixed = offsets
+    zone = find_zone(text, fixed)
     if isinstance(zone, str):
         return review(zone)
     at = find_time(text)

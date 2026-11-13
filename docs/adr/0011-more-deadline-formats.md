@@ -26,7 +26,7 @@ This ADR extends ADR 0005; it does not replace any of its rules. ADR 0010 is res
 
 ## Follow-up decisions (2026-11-13)
 
-Made by the owner after reviewing PR #52.
+Made by the owner after reviewing PR #52. Decision 7 updates the "Time zone required" rule of ADR 0005.
 
 ### 4. Day-first "May" needs its capital
 
@@ -41,6 +41,16 @@ The rule covers "May" only, not every day-first month name. "May" is the only mo
 ### 6. Forms left in review
 
 "close of business" / "COB", "the 14th of November", and "China time" or "Beijing" alone stay unrecognized and need review. Accepted.
+
+### 7. Strict GMT/UTC offsets
+
+Before this decision, "5pm GMT+8" ignored the `+8` and parsed as plain UTC, which silently gave a wrong time.
+
+- `GMT` or `UTC` **immediately** followed by `+` or `-` and an hour is a fixed offset: `GMT+8`, `UTC-5`, `UTC+05:30`, `UTC+8:00`, `GMT+0800`. The total offset runs from -12:00 to +14:00, and minutes, if present, are 00, 30 or 45.
+- The offset keeps its literal sign: `GMT+8` is UTC+08:00. It is never mapped to `Etc/GMT+8`, whose sign is inverted (UTC-8). A fixed offset has no DST, so the standard and daylight checks do not apply.
+- Any other offset-like text needs review with reason `bad_offset`: a space between the zone and the sign (`GMT +8`), an hour out of range (`UTC+15`, `UTC-13`), odd minutes (`GMT+8:20`), or an offset after a regional zone (`PT+1`, `EST-5`).
+- A bare `GMT` or `UTC` still means UTC. An offset next to a different zone ("GMT+8 PT") is `multiple_zones`.
+- The offset text is removed before times and dates are read, so the "8:00" in `UTC+8:00` is not a time.
 
 ## Rules kept from ADR 0005
 
