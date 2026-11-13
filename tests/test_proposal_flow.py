@@ -306,15 +306,34 @@ def test_digest_counts_expired_proposals(session: Session) -> None:
     assert digest is not None
     view = read_digest(session, digest, when)
     assert view.expired_proposals == 1
-    # The item needs review again, but its old due time (Friday) passed more
-    # than two days ago, so it is in the Past view, not the digest (ADR 0015)
-    assert view.sections["needs_review"] == []
-    (past,) = past_items(session, when).past
-    assert (past.title, past.status, past.review) == (
+    # The item needs review again. Its stored due time (Friday) passed more
+    # than two days ago, but the proposed later time may still be ahead, so
+    # the expired proposal holds it in the digest's Overdue group instead of
+    # sending it to the Past view (ADR 0015, as amended)
+    (held,) = view.overdue
+    assert (held.title, held.status, held.review) == (
         "Homework 3",
         "needs_review",
         "proposal_expired",
     )
+    assert past_items(session, when).past == []
+
+
+def test_expired_proposal_hold_ends_when_the_owner_acts(session: Session) -> None:
+    item, _ = posted_and_extended(session, MOVED_LATE)
+    when = RUN + timedelta(days=7, hours=8)
+    sweep(session, when, "worker")
+    set_status(session, item.id, "done")
+    session.commit()
+    digest = make_digest(session, when, LA, 7)
+    assert digest is not None
+    assert read_digest(session, digest, when).overdue == []
+    # Reopened by the owner: an ordinary open item again, so the old due
+    # time applies and it moves to the Past view
+    set_status(session, item.id, "open")
+    session.commit()
+    (past,) = past_items(session, when).past
+    assert (past.title, past.status) == ("Homework 3", "open")
 
 
 # ---- Superseding ----

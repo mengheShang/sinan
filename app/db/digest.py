@@ -49,7 +49,7 @@ from app.db.models import (
     Proposal,
 )
 from app.items.assumed import NOTHING, Assumed, assumed_of
-from app.items.timing import Phase, phase
+from app.items.timing import Phase, is_held, phase
 
 DUE_WINDOW = timedelta(days=7)
 ACTIVE = ("open", "needs_review")
@@ -209,7 +209,8 @@ class DigestView:
     generated_at: datetime
     since: datetime | None
     sections: dict[str, list[ItemView]]
-    # Active items whose due time passed less than two days ago, at read time
+    # Active items whose due time passed less than two days ago, or that a
+    # proposal holds in the digest (see app.items.timing.is_held), at read time
     overdue: list[ItemView]
     # Proposals that expired unanswered since the previous digest
     expired_proposals: int
@@ -282,7 +283,8 @@ def order_key(view: ItemView) -> tuple[bool, datetime, str]:
 
 def phase_of(view: ItemView, now: datetime, pending: set[uuid.UUID]) -> Phase:
     source_at = view.received_at or view.created_at
-    return phase(view.status, view.due_at, source_at, now, view.id in pending)
+    held = is_held(view.status, view.review, view.id in pending)
+    return phase(view.status, view.due_at, source_at, now, held)
 
 
 def shown(view: ItemView, now: datetime, pending: set[uuid.UUID]) -> bool:

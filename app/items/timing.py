@@ -10,8 +10,11 @@ status; past and stale items only move out of the digest into the Past view.
 - stale: needs review, no due time, and the source email is more than
   STALE_AFTER old. Shown only in the Past view.
 
-An item with a valid pending proposal stays in the digest (ADR 0014): it is
-never past or stale, and once its due time passes it stays overdue.
+An item is held in the digest while a proposal is waiting on it (ADR 0014):
+it is never past or stale, and once its due time passes it stays overdue.
+That covers a valid pending proposal, and an item in review because its
+proposal expired unanswered. Its stored due time is the old one, while the
+proposed later time may still be ahead, so it must not drop out unseen.
 """
 
 from datetime import datetime, timedelta
@@ -23,12 +26,21 @@ STALE_AFTER = timedelta(days=14)
 Phase = Literal["current", "overdue", "past", "stale"]
 # Phases that keep an item on the Dashboard
 SHOWN: tuple[Phase, ...] = ("current", "overdue")
+# Review codes that hold an item in the digest like a pending proposal
+HOLDING_REVIEWS = frozenset({"proposal_expired"})
 
 
-def due_phase(due_at: datetime, now: datetime, pending: bool) -> Phase:
+def is_held(status: str, review: str | None, pending: bool) -> bool:
+    """Whether a proposal keeps the item in the digest whatever its due time."""
+    if pending:
+        return True
+    return status == "needs_review" and review in HOLDING_REVIEWS
+
+
+def due_phase(due_at: datetime, now: datetime, held: bool) -> Phase:
     if due_at >= now:
         return "current"
-    if pending or now - due_at < GRACE:
+    if held or now - due_at < GRACE:
         return "overdue"
     return "past"
 
@@ -42,16 +54,16 @@ def phase(
     due_at: datetime | None,
     source_at: datetime,
     now: datetime,
-    pending: bool,
+    held: bool,
 ) -> Phase:
     """The phase of an open or needs_review item at `now`.
 
     `source_at` is when the item's source email arrived, or when the item
-    was created if no email is known. `pending` says whether the item has a
-    proposal that can still be decided.
+    was created if no email is known. `held` says whether a proposal keeps the
+    item in the digest (see is_held).
     """
     if due_at is not None:
-        return due_phase(due_at, now, pending)
-    if not pending and is_stale(status, source_at, now):
+        return due_phase(due_at, now, held)
+    if not held and is_stale(status, source_at, now):
         return "stale"
     return "current"
