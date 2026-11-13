@@ -82,6 +82,8 @@ services:
       # The daily digest: its local day and the hour after which it is made
       SINAN_TIMEZONE: ${SINAN_TIMEZONE:-America/Los_Angeles}
       SINAN_DIGEST_HOUR: ${SINAN_DIGEST_HOUR:-7}
+      # Sets the expiry time of the proposals it makes (ADR 0009, decision 6)
+      SINAN_PROPOSAL_TTL_DAYS: ${SINAN_PROPOSAL_TTL_DAYS:-7}
     # Local prefilter rules (git-ignored); the example rules apply when absent
     volumes:
       - ./config:/srv/config:ro
