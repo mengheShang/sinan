@@ -169,11 +169,12 @@ def test_retired_at_is_the_transaction_time(session: Session) -> None:
 
 
 def test_correction_keeps_the_old_row(session: Session) -> None:
-    old = put(session, created_at=PAST)
+    old = put(session)
     new = store.correct(session, old, no_items())
-    rows = session.execute(sa.select(EvalLabel).order_by(EvalLabel.created_at)).scalars().all()
-    assert [r.id for r in rows] == [old, new]
-    first, second = rows
+    first = session.get(EvalLabel, old)
+    second = session.get(EvalLabel, new)
+    assert first is not None
+    assert second is not None
     assert first.retired_at is not None
     assert first.labels == FIRST.labels.model_dump(mode="json")
     assert second.corrects == old
@@ -182,14 +183,18 @@ def test_correction_keeps_the_old_row(session: Session) -> None:
     assert second.source_message_id == first.source_message_id
 
 
-def test_reads_show_the_correction_and_the_past(session: Session) -> None:
-    old = put(session, created_at=PAST)
-    store.correct(session, old, no_items())
-    [now] = store.load_set(session, "dev")
-    assert now.labels == no_items()
-    [before] = store.load_set(session, "dev", as_of=PAST + timedelta(hours=1))
-    assert before.labels == FIRST.labels
-    assert store.load_set(session, "dev", as_of=PAST - timedelta(hours=1)) == []
+def test_supplied_created_at_is_overwritten(session: Session) -> None:
+    label = put(session, created_at=PAST)
+    query = sa.select(EvalLabel.created_at, sa.func.now()).where(EvalLabel.id == label)
+    created, now = session.execute(query).one()
+    assert created == now
+    assert created != PAST
+
+
+def test_created_at_cannot_be_changed(session: Session) -> None:
+    label = put(session)
+    where = EvalLabel.id == label
+    fails(session, sa.update(EvalLabel).where(where).values(created_at=PAST))
 
 
 def test_correction_needs_the_old_row_retired(session: Session) -> None:

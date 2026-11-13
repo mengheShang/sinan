@@ -422,4 +422,5 @@ class EvalLabel(Base):
     )
     # Set once, to the transaction time, when the row is retired
     retired_at: Mapped[datetime | None] = mapped_column(UTC_TS)
+    # Always the inserting transaction's time; a trigger overwrites any value
     created_at: Mapped[datetime] = created_at()

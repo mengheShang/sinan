@@ -11,9 +11,11 @@ evals/README.md. The evaluation reads these rows, never `messages`.
 
 A row is never edited in place. A trigger rejects DELETE and TRUNCATE, and
 the only UPDATE it allows is retiring a row once: setting `retired_at`, which
-it fills with the transaction time. A correction retires the old row and
+it fills with the transaction time. An insert trigger likewise sets
+`created_at` to the transaction time, ignoring any supplied value, so
+neither time can be backdated. A correction retires the old row and
 inserts a new one whose `corrects` points at it, with the same snapshot,
-source message and set; a second trigger checks that.
+source message and set; the insert trigger checks that too.
 
 Constraint names follow the naming convention in app/db/base.py.
 """
@@ -61,6 +63,8 @@ LANGUAGE plpgsql AS $$
 DECLARE
     old_row eval_labels%ROWTYPE;
 BEGIN
+    -- Set here, not by the caller, so the label history cannot be backdated
+    NEW.created_at := now();
     IF NEW.corrects IS NULL THEN
         RETURN NEW;
     END IF;
