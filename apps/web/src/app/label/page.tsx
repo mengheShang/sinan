@@ -20,10 +20,10 @@ function CountBar({ counts }: { counts: Counts }) {
   return (
     <p className={styles.counts}>
       <span>
-        dev <strong>{counts.dev}</strong>
+        dev <strong>{counts.dev}</strong> of {counts.dev_total}
       </span>
       <span>
-        test <strong>{counts.test}</strong>
+        test <strong>{counts.test}</strong> of {counts.test_total}
       </span>
       <span>
         skipped <strong>{counts.skipped}</strong>
@@ -57,18 +57,19 @@ function Nav({ email }: { email: Email }) {
 }
 
 function Status({ email }: { email: Email }) {
+  const set = <strong>{email.eval_set}</strong>;
   if (email.frozen) {
     return (
       <p className={styles.note}>
-        Labeled in <strong>{email.eval_set}</strong>. The text below is the frozen snapshot;
-        saving stores a correction and retires the old label.
+        Labeled in the {set} set. The text below is the frozen snapshot; saving stores a
+        correction and retires the old label.
       </p>
     );
   }
   if (email.skipped) {
-    return <p className={styles.note}>Skipped. You can still label it.</p>;
+    return <p className={styles.note}>In the {set} set. Skipped; you can still label it.</p>;
   }
-  return <p className={styles.note}>Not labeled yet.</p>;
+  return <p className={styles.note}>In the {set} set. Not labeled yet.</p>;
 }
 
 function EmailView({ email, zone }: { email: Email; zone: string }) {
@@ -100,7 +101,12 @@ async function Labeler({ searchParams }: Pick<PageProps<"/label">, "searchParams
     }
     const start = queue.next_open_id ?? queue.first_id;
     if (start === null) {
-      return <p className={styles.muted}>No emails to label yet. Mail appears after a sync.</p>;
+      return (
+        <p className={styles.muted}>
+          No sampled emails yet. They appear once the owner draws the sets with{" "}
+          <code>python -m apps.worker.sample</code>.
+        </p>
+      );
     }
     redirect(`/label?id=${start}`);
   }
@@ -149,8 +155,8 @@ export default function LabelPage({ searchParams }: PageProps<"/label">) {
       </p>
       <h1>Label emails</h1>
       <p className={styles.note}>
-        Labels go to the dev or test set in the local database (ADR 0009). Until sampling exists,
-        choose the set for each email here. Nothing is sent anywhere.
+        Labels go to the local database (ADR 0009). Only sampled emails are listed, dev set first,
+        and each is labeled into the set its draw gave it. Nothing is sent anywhere.
       </p>
       <Suspense fallback={<p>Loading the email…</p>}>
         <Labeler searchParams={searchParams} />

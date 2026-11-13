@@ -9,8 +9,9 @@ Local database writes only: nothing reaches Gmail and the model plays no
 part. Audit events hold IDs and statuses only, never email content, and
 nothing here logs.
 
-Emails are labeled oldest first, so the item an extension changes is
-usually labeled before the extension.
+Only emails of the current draw are in the queue (Issue #41): the dev set
+first, then the test set. Within a set they are labeled oldest first, so the
+item an extension changes is usually labeled before the extension.
 """
 
 import uuid
@@ -19,15 +20,15 @@ from datetime import datetime
 from typing import Any
 
 from pydantic import ValidationError
-from sqlalchemy import ColumnElement, and_, exists, func, or_, select
+from sqlalchemy import ColumnElement, case, exists, func, select, tuple_
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import Subquery
 
 from app.db import labels as store
+from app.db import sampling
 from app.db.label_format import Labels, Snapshot, missing_due_raw
 from app.db.models import Account, AuditEvent, EvalLabel, Message
 
-# Sampling (Issue #41) will decide set versions; until then every row is draw 1
-SET_VERSION = 1
 SKIP_EVENT = "eval_label.skip"
 
 
@@ -69,11 +70,22 @@ def problems_of(err: ValidationError, prefix: str) -> list[Problem]:
 
 
 # ---- The queue ----
+#
+# The queue holds only emails of the newest draw of each set (Issue #41):
+# the dev set first, then the test set, each oldest first.
+
+SET_RANK = {"dev": 0, "test": 1}
+
+Place = tuple[int, datetime, uuid.UUID]
 
 
 def order_key() -> ColumnElement[datetime]:
     # The time the extractor uses: sent, or received when sent is missing
     return func.coalesce(Message.sent_at, Message.received_at)
+
+
+def rank(sampled: Subquery) -> ColumnElement[int]:
+    return case(SET_RANK, value=sampled.c.eval_set, else_=len(SET_RANK))
 
 
 def current_label(message_id: Any) -> ColumnElement[bool]:
@@ -93,66 +105,97 @@ def is_open() -> ColumnElement[bool]:
 
 @dataclass(frozen=True)
 class Counts:
+    # Labeled emails in each set's current draw, and the size of that draw
     dev: int
     test: int
+    dev_total: int
+    test_total: int
     skipped: int
     remaining: int
 
 
 def counts(session: Session) -> Counts:
-    by_set = (
-        select(EvalLabel.eval_set, func.count())
-        .where(EvalLabel.retired_at.is_(None))
-        .group_by(EvalLabel.eval_set)
-    )
-    per_set = {name: count for name, count in session.execute(by_set)}
+    sampled = sampling.current(session)
+    labeled = func.count().filter(current_label(sampled.c.message_id))
+    by_set = select(sampled.c.eval_set, func.count(), labeled).group_by(sampled.c.eval_set)
+    per_set = {name: (total, done) for name, total, done in session.execute(by_set)}
+    in_draw = Message.id.in_(select(sampled.c.message_id))
     only_skipped = skipped(Message.id) & ~current_label(Message.id)
-    skip_query = select(func.count()).select_from(Message).where(only_skipped)
-    open_query = select(func.count()).select_from(Message).where(is_open())
+    skip_query = select(func.count()).select_from(Message).where(in_draw, only_skipped)
+    open_query = select(func.count()).select_from(Message).where(in_draw, is_open())
+    dev = per_set.get("dev", (0, 0))
+    test = per_set.get("test", (0, 0))
     return Counts(
-        dev=per_set.get("dev", 0),
-        test=per_set.get("test", 0),
+        dev=dev[1],
+        test=test[1],
+        dev_total=dev[0],
+        test_total=test[0],
         skipped=session.execute(skip_query).scalar_one(),
         remaining=session.execute(open_query).scalar_one(),
     )
 
 
-def after(key: datetime, message_id: uuid.UUID) -> ColumnElement[bool]:
-    later = order_key() > key
-    same = and_(order_key() == key, Message.id > message_id)
-    return or_(later, same)
+def first_id(
+    session: Session,
+    open_only: bool = False,
+    after: Place | None = None,
+    before: Place | None = None,
+) -> uuid.UUID | None:
+    """The first sampled email in queue order after `after`.
 
-
-def before(key: datetime, message_id: uuid.UUID) -> ColumnElement[bool]:
-    earlier = order_key() < key
-    same = and_(order_key() == key, Message.id < message_id)
-    return or_(earlier, same)
-
-
-def first_id(session: Session, where: list[ColumnElement[bool]], desc: bool) -> uuid.UUID | None:
-    key = order_key().desc() if desc else order_key().asc()
-    tie = Message.id.desc() if desc else Message.id.asc()
-    query = select(Message.id).where(*where).order_by(key, tie).limit(1)
+    With `before`, the last one before it instead.
+    """
+    sampled = sampling.current(session)
+    keys: list[ColumnElement[Any]] = [rank(sampled), order_key(), Message.id.expression]
+    place = tuple_(*keys)
+    query = select(Message.id).join(sampled, sampled.c.message_id == Message.id)
+    if open_only:
+        query = query.where(is_open())
+    if after is not None:
+        query = query.where(place > tuple_(*after))
+    if before is not None:
+        query = query.where(place < tuple_(*before))
+        keys = [k.desc() for k in keys]
+    query = query.order_by(*keys).limit(1)
     found: uuid.UUID | None = session.execute(query).scalar_one_or_none()
     return found
 
 
 def next_open(session: Session, message_id: uuid.UUID | None = None) -> uuid.UUID | None:
-    """The next email to label after this one, wrapping to the oldest."""
+    """The next email to label after this one, wrapping to the first."""
     if message_id is not None:
         place = position(session, message_id)
-        found = first_id(session, [is_open(), after(*place)], desc=False)
+        found = first_id(session, open_only=True, after=place)
         if found is not None:
             return found
-    return first_id(session, [is_open()], desc=False)
+    return first_id(session, open_only=True)
 
 
-def position(session: Session, message_id: uuid.UUID) -> tuple[datetime, uuid.UUID]:
-    query = select(order_key()).where(Message.id == message_id)
-    key = session.execute(query).scalar_one_or_none()
-    if key is None:
+@dataclass(frozen=True)
+class Drawn:
+    eval_set: str
+    set_version: int
+
+
+def drawn(session: Session, message_id: uuid.UUID) -> Drawn | None:
+    """The set and set version the current draw gives this email, if any."""
+    sampled = sampling.current(session)
+    where = sampled.c.message_id == message_id
+    query = select(sampled.c.eval_set, sampled.c.set_version).where(where)
+    row = session.execute(query).one_or_none()
+    if row is None:
+        return None
+    return Drawn(row[0], row[1])
+
+
+def position(session: Session, message_id: uuid.UUID) -> Place:
+    """Where a sampled email sits in the queue. Unsampled emails are unknown."""
+    found = drawn(session, message_id)
+    if found is None:
         raise UnknownEmail(str(message_id))
-    return key, message_id
+    query = select(order_key()).where(Message.id == message_id)
+    key: datetime = session.execute(query).scalar_one()
+    return SET_RANK[found.eval_set], key, message_id
 
 
 # ---- One email ----
@@ -224,8 +267,9 @@ def read_email(session: Session, message_id: uuid.UUID) -> EmailView:
     if found is None:
         raise UnknownEmail(str(message_id))
     msg, role = found
-    row = current_row(session, message_id)
     place = position(session, message_id)
+    pick = drawn(session, message_id)
+    row = current_row(session, message_id)
     sent_at = msg.sent_at or msg.received_at
     view: dict[str, Any] = {
         "from_addr": msg.from_addr,
@@ -243,13 +287,13 @@ def read_email(session: Session, message_id: uuid.UUID) -> EmailView:
         id=message_id,
         frozen=row is not None,
         label_id=row.id if row else None,
-        eval_set=row.eval_set if row else None,
+        eval_set=row.eval_set if row else pick.eval_set if pick else None,
         labels=row.labels if row else None,
         tags=list(row.tags) if row else [],
         skipped=is_skipped(session, message_id),
         problems=problems,
-        prev_id=first_id(session, [before(*place)], desc=True),
-        next_id=first_id(session, [after(*place)], desc=False),
+        prev_id=first_id(session, before=place),
+        next_id=first_id(session, after=place),
         next_open_id=next_open(session, message_id),
         refs=earlier_refs(session, view["sent_at"], row.id if row else None),
         **view,
@@ -336,17 +380,21 @@ def audit(event: str, subject_type: str, subject_id: uuid.UUID, data: dict[str, 
 def save(
     session: Session,
     message_id: uuid.UUID,
-    eval_set: str,
     labels: Labels,
     tags: list[str],
 ) -> uuid.UUID:
-    """Freeze the email and store its first label. Does not commit.
+    """Freeze the email and store its first label, in the set its draw gave it.
+
+    Does not commit. Emails outside the current draw are unknown here.
 
     The message row is locked first, so two saves of the same email cannot
     both pass the check; the unique index on current rows backs this up.
     """
     lock = select(Message.id).where(Message.id == message_id).with_for_update()
     if session.execute(lock).scalar_one_or_none() is None:
+        raise UnknownEmail(str(message_id))
+    pick = drawn(session, message_id)
+    if pick is None:
         raise UnknownEmail(str(message_id))
     if current_row(session, message_id) is not None:
         raise Conflict("already labeled")
@@ -357,8 +405,14 @@ def save(
     problems = link_problems(session, snapshot, labels)
     if problems:
         raise Invalid(problems)
-    label_id = store.add(session, snapshot, labels, eval_set, SET_VERSION, message_id, tags)
-    data = {"message_id": str(message_id), "eval_set": eval_set}
+    label_id = store.add(
+        session, snapshot, labels, pick.eval_set, pick.set_version, message_id, tags
+    )
+    data = {
+        "message_id": str(message_id),
+        "eval_set": pick.eval_set,
+        "set_version": pick.set_version,
+    }
     session.add(audit("eval_label.add", "eval_label", label_id, data))
     session.flush()
     return label_id
@@ -397,6 +451,8 @@ def skip(session: Session, message_id: uuid.UUID) -> None:
     """
     lock = select(Message.id).where(Message.id == message_id).with_for_update()
     if session.execute(lock).scalar_one_or_none() is None:
+        raise UnknownEmail(str(message_id))
+    if drawn(session, message_id) is None:
         raise UnknownEmail(str(message_id))
     if current_row(session, message_id) is not None:
         raise Conflict("already labeled")

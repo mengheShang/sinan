@@ -189,15 +189,12 @@ export function LabelForm({ email, zone }: { email: Email; zone: string }) {
   const [drafts, setDrafts] = useState<Draft[]>(stored ? stored.items.map(draftOf) : []);
   const [safe, setSafe] = useState(stored ? stored.safe_to_auto_read : false);
   const [tags, setTags] = useState(email.tags.join(", "));
-  const [evalSet, setEvalSet] = useState<"dev" | "test">(email.eval_set ?? "dev");
   const correcting = email.label_id !== null;
-  const body: Record<string, unknown> = {
+  // The set comes from the sampling draw, so the form never sends one
+  const body = {
     labels: { items: drafts.map(itemOf), safe_to_auto_read: safe },
     tags: splitTags(tags),
   };
-  if (!correcting) {
-    body.eval_set = evalSet;
-  }
   const payload = JSON.stringify(body);
   const refsId = `refs-${email.id}`;
   const problems = state.problems;
@@ -211,7 +208,7 @@ export function LabelForm({ email, zone }: { email: Email; zone: string }) {
     const data = new FormData(event.currentTarget);
     startTransition(() => action(data));
   };
-  const known = new Set(["eval_set", "tags", "labels.safe_to_auto_read"]);
+  const known = new Set(["tags", "labels.safe_to_auto_read"]);
   const general = problems.filter(
     (p) => !p.field.startsWith("labels.items.") && !known.has(p.field),
   );
@@ -227,22 +224,6 @@ export function LabelForm({ email, zone }: { email: Email; zone: string }) {
           </option>
         ))}
       </datalist>
-      <div className={styles.row}>
-        <label htmlFor="eval_set">Set</label>
-        {correcting ? (
-          <strong id="eval_set">{email.eval_set}</strong>
-        ) : (
-          <select
-            id="eval_set"
-            value={evalSet}
-            onChange={(e) => setEvalSet(e.target.value as "dev" | "test")}
-          >
-            <option value="dev">dev</option>
-            <option value="test">test</option>
-          </select>
-        )}
-      </div>
-      <Errors problems={under(problems, "eval_set")} />
       <h2>Items {drafts.length === 0 ? <span className={styles.muted}>none</span> : null}</h2>
       {drafts.map((d, n) => (
         <ItemFields
