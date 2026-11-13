@@ -1,7 +1,15 @@
 // Shapes of the labeling API (apps/api/labeling.py) and of the form.
 // The label fields follow evals/README.md.
 
-export type Counts = { dev: number; test: number; skipped: number; remaining: number };
+// dev and test count labeled emails of the current draw; the totals are its size
+export type Counts = {
+  dev: number;
+  test: number;
+  dev_total: number;
+  test_total: number;
+  skipped: number;
+  remaining: number;
+};
 
 export type Problem = { field: string; message: string };
 

@@ -99,6 +99,17 @@ Exactly what the prefilter and the extractor see of the email, and nothing else.
 
 Edit `synthetic.jsonl` directly, keep every name and address fictional, and run `uv run pytest tests/test_eval_dataset.py`.
 
+## Drawing the real sets
+
+The owner draws the real sets once, after merging, from the Worker container (Issue #41, ADR 0012):
+
+```bash
+docker compose exec worker python -m apps.worker.sample --seed 20261112
+docker compose exec worker python -m apps.worker.sample --seed 20261112 --write
+```
+
+The first command only shows what it would draw; `--write` records it. The draw is dev 100 and test 50, each half school and half personal mail, with 20% of each half from mail the prefilter skips. The same seed over the same mail gives the same draw. If a stratum has too little mail, nothing is drawn and the output names the shortfall. The test set is fixed once drawn; `--redraw-dev` draws a new dev set with the next set version. The output holds counts only. The labeling page then lists only the drawn emails, dev first.
+
 ## Running an evaluation
 
 The runner (`run.py`) sends every email in a set through the same path the Worker takes: the prefilter (the example rules in `app/extraction/prefilter.example.toml` unless `--rules` names another file), the prepared text, the model, and deterministic validation (`app/extraction/validate.py`). Emails go in order of `sent_at`, so a change comes after the item it changes. A prefilter skip counts as "no items found", so the metrics describe the whole pipeline.
