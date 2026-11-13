@@ -1,14 +1,18 @@
 """Turn an explicit deadline phrase into a UTC time, or say why it needs review.
 
-Pure and deterministic: no network, no clock, no LLM. The rules (ADR 0005):
+Pure and deterministic: no network, no clock, no LLM. The rules (ADR 0005,
+extended by ADR 0011):
 
-- A time zone is required. Pacific, Mountain, Central, Eastern, UTC/GMT and
-  AoE are understood. Standard or daylight names (PST, PDT, ...) must match
-  the date: "PST" on a summer date is ambiguous.
-- A time is required. "noon" is 12:00; "midnight" is ambiguous.
-- The date is a month name and day ("Nov 14", "November 14th, 2026"), an ISO
-  date, a weekday ("Friday"), or today / tonight / tomorrow. Numeric dates
-  such as 11/14 always need review, because 11/12 has two readings.
+- A time zone is required. Pacific, Mountain, Central, Eastern, UTC/GMT,
+  AoE and China time ("Beijing time", "China Standard Time") are understood.
+  "CST" is always US Central. Standard or daylight names (PST, PDT, ...) must
+  match the date: "PST" on a summer date is ambiguous.
+- A time is required. "noon" is 12:00; "end of day" (or "EOD") is 23:59 in
+  the stated zone; "midnight" is ambiguous.
+- The date is a month name and day ("Nov 14", "November 14th, 2026"), a day
+  and month name ("14 November", "14 Nov 2026"), an ISO date, a weekday
+  ("Friday"), or today / tonight / tomorrow. Numeric dates such as 11/14
+  always need review, because 11/12 has two readings.
 - A missing year is inferred from the email date: the one year that puts the
   date between 30 days before and 335 days after the email.
 - A weekday alone means the first such day on or after the email date, in the
@@ -63,6 +67,9 @@ ZONES: dict[str, Zone] = {
     "gmt": Zone(UTC, hours(0)),
     # Anywhere on Earth: the deadline holds until the day ends everywhere
     "aoe": Zone(timezone(hours(-12)), hours(-12)),
+    # China time by full name only; "cst" above stays US Central
+    "beijing time": Zone(region("Asia/Shanghai"), None),
+    "china standard time": Zone(region("Asia/Shanghai"), hours(8)),
 }
 
 # Exact spellings only, so "marks 10" or "month" are not read as dates
@@ -120,15 +127,27 @@ def words(names: dict[str, int] | dict[str, Zone]) -> str:
 
 
 ZONE_RE = re.compile(r"\b(" + words(ZONES) + r")\b")
-MONTH_RE = re.compile(
-    r"\b(" + words(MONTHS) + r")\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b(?:\s+(\d{4})\b)?"
-)
+MONTH = r"\b(" + words(MONTHS) + r")\b\.?"
+DAY = r"\b(\d{1,2})(?:st|nd|rd|th)?\b"
+YEAR = r"(?:\s+(\d{4})\b)?"
+# A day after a month is not a clock hour: "14 Nov 11:59pm" and
+# "14 Nov 5 pm" do not mean Nov 11 or Nov 5
+NOT_HOUR = r"(?![:.]\d)(?!\s*(?:am|pm)\b)"
+# "Nov 14", "November 14th 2026"
+MONTH_RE = re.compile(MONTH + r"\s+" + DAY + NOT_HOUR + YEAR)
+# A day before a month is not right after ":", "-", "." or a digit, so the
+# "59" in "23:59 November 14" is not a day
+NOT_MINUTE = r"(?<![:\-.\d])"
+# "14 Nov", "14th November 2026"
+DAY_FIRST_RE = re.compile(NOT_MINUTE + DAY + r"\s+" + MONTH + YEAR)
 ISO_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
 NUMERIC_RE = re.compile(r"\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b")
 WEEKDAY_RE = re.compile(r"\b(?:(next|this)\s+)?(" + words(WEEKDAYS) + r")\.?(?=\s|$|\b)")
 RELATIVE_RE = re.compile(r"\b(today|tonight|tomorrow)\b")
 TIME_12_RE = re.compile(r"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b")
 TIME_24_RE = re.compile(r"\b(\d{1,2}):(\d{2})\b(?!\s*(?:am|pm))")
+END_OF_DAY_RE = re.compile(r"\b(?:end[\s-]+of[\s-]+(?:the[\s-]+)?day|eod)\b")
+END_OF_DAY = time(23, 59)
 
 
 @dataclass(frozen=True)
@@ -146,7 +165,9 @@ def review(reason: str) -> DueParse:
 def normalize(text: str) -> str:
     lowered = text.lower()
     lowered = lowered.replace("a.m.", "am").replace("p.m.", "pm")
-    return lowered.replace(",", " ")
+    lowered = lowered.replace(",", " ")
+    # One space between words, so "beijing  time" matches "beijing time"
+    return " ".join(lowered.split())
 
 
 def find_zone(text: str) -> Zone | str:
@@ -165,6 +186,8 @@ def find_time(text: str) -> time | str:
     found: list[time] = []
     if re.search(r"\bnoon\b", text):
         found.append(time(12, 0))
+    if END_OF_DAY_RE.search(text):
+        found.append(END_OF_DAY)
     for hour_s, minute_s, half in TIME_12_RE.findall(text):
         hour, minute = int(hour_s), int(minute_s or 0)
         if not 1 <= hour <= 12 or minute > 59:
@@ -196,6 +219,9 @@ def find_date(text: str) -> DateParts | str | None:
         return "numeric_date"
     found: set[DateParts] = set()
     for month_s, day_s, year_s in MONTH_RE.findall(text):
+        year = int(year_s) if year_s else None
+        found.add(DateParts(MONTHS[month_s], int(day_s), year))
+    for day_s, month_s, year_s in DAY_FIRST_RE.findall(text):
         year = int(year_s) if year_s else None
         found.add(DateParts(MONTHS[month_s], int(day_s), year))
     for year_s, month_s, day_s in ISO_RE.findall(text):
