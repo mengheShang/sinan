@@ -1,9 +1,11 @@
 """Proposal endpoints for the Dashboard: list, approve and reject.
 
-All sit behind the login like every other route. Listing checks every
-pending proposal first (expiry and superseding, ADR 0009 decision 6), with
-the same function approving uses right before it applies a change.
-Approving writes only the local database; nothing external is touched.
+All sit behind the login like every other route. Listing writes nothing:
+it computes each proposal's status now (expiry and superseding, ADR 0009
+decision 6, ADR 0013) with the same function that approving and rejecting
+use; those record what they find in their own transaction, and the Worker's
+sweep records the rest. Approving writes only the local database; nothing
+external is touched.
 """
 
 import uuid
@@ -16,7 +18,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.actions.proposals import HashMismatch, NotPending, UnknownProposal, approve, reject, sweep
+from app.actions.proposals import (
+    HashMismatch,
+    NotPending,
+    UnknownProposal,
+    approve,
+    effective,
+    reject,
+)
 from app.db.models import Account, Item, Message, Proposal
 from app.proposals import HASH_PATTERN
 from apps.api.digest import SettingsDep
@@ -78,7 +87,7 @@ def gmail_url(msg: Message, email: str, live: bool) -> str | None:
     return f"https://mail.google.com/mail/?authuser={email}#all/{msg.provider_msg_id}"
 
 
-def to_out(row: Any, live: bool) -> ProposalOut:
+def to_out(row: Any, state: str, live: bool) -> ProposalOut:
     proposal: Proposal = row[0]
     item: Item = row[1]
     msg: Message = row[2]
@@ -88,7 +97,8 @@ def to_out(row: Any, live: bool) -> ProposalOut:
     return ProposalOut(
         id=proposal.id,
         kind=proposal.kind,
-        status=proposal.status,
+        # Computed now, so an unswept proposal past its expiry reads as expired
+        status=state,
         item_id=item.id,
         course=item.course,
         title=item.title,
@@ -106,13 +116,13 @@ def to_out(row: Any, live: bool) -> ProposalOut:
     )
 
 
-def rows(session: Session, wanted: tuple[str, ...]) -> list[Any]:
+def rows(session: Session, stored: set[str]) -> list[Any]:
     query = (
         select(Proposal, Item, Message, Account.email)
         .join(Item, Item.id == Proposal.item_id)
         .join(Message, Message.id == Proposal.message_id)
         .join(Account, Account.id == Message.account_id)
-        .where(Proposal.status.in_(wanted))
+        .where(Proposal.status.in_(stored))
         .order_by(Proposal.expires_at, Proposal.id)
     )
     return list(session.execute(query).all())
@@ -125,12 +135,23 @@ def proposals(
     clock: ClockDep,
     status: Annotated[list[Status] | None, Query()] = None,
 ) -> list[ProposalOut]:
-    """Proposals with the given statuses, pending by default, soonest expiry first."""
-    sweep(session, clock(), "api")
-    session.commit()
-    wanted = tuple(status) if status else ("pending",)
+    """Proposals whose status now is one of these, pending by default.
+
+    Soonest expiry first. Read only: a stored `pending` proposal past its
+    expiry, or whose item has changed, is shown as expired or superseded
+    without being recorded as such.
+    """
+    wanted = set(status) if status else {"pending"}
+    # Any still-pending row may now be expired or superseded
+    stored = wanted | {"pending"}
+    now = clock()
     live = settings.sinan_mode == "live"
-    return [to_out(row, live) for row in rows(session, wanted)]
+    found = []
+    for row in rows(session, stored):
+        state = effective(session, row[0], now)
+        if state in wanted:
+            found.append(to_out(row, state, live))
+    return found
 
 
 class ApproveBody(BaseModel):

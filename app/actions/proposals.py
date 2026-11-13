@@ -1,13 +1,19 @@
 """Decide item_update proposals: approve, reject, expire and supersede.
 
-ADR 0009, decisions 2 and 6. Every path checks a proposal with the same
-function, app.proposals.validity, both when proposals are read (`sweep`)
-and right before one is applied (`approve`):
+ADR 0009, decisions 2 and 6, and ADR 0013. Every path checks a proposal
+with the same function, app.proposals.validity:
+
+- reading (`effective`) computes the status and writes nothing;
+- the Worker's `sweep` and the owner's `approve` and `reject` record what
+  the check finds, inside their own transaction, before acting.
+
+What the check finds:
 
 - superseded: the target item has a newer version than the proposal's
   `base_version`, from another email or from the owner.
-- expired: `expires_at` has passed. The item moves to needs_review, because
-  a missed deadline is worse than an extra prompt.
+- expired: `expires_at` has passed. When recorded, the item moves to
+  needs_review (actor `system`), because a missed deadline is worse than an
+  extra prompt.
 
 Approving recomputes `payload_hash` from the stored payload and refuses a
 mismatch, and also refuses when the hash the owner was shown differs. Then,
@@ -64,8 +70,9 @@ def mark(session: Session, proposal: Proposal, status: str, actor: str) -> None:
 def to_review(session: Session, proposal: Proposal, actor: str) -> None:
     """Move an expired proposal's item to needs_review, as a new version.
 
-    The version points at the email whose change went unanswered, so the
-    Dashboard can show that evidence next to the review flag.
+    The actor is `system` (migration 0006): neither the owner nor extraction
+    made this move. The version still points at the email whose change went
+    unanswered, so the Dashboard can show that evidence next to the flag.
     """
     item = lock_item(session, proposal.item_id)
     if item.status != "open":
@@ -76,7 +83,7 @@ def to_review(session: Session, proposal: Proposal, actor: str) -> None:
         item_id=item.id,
         version=number,
         change_type="status",
-        actor="extraction",
+        actor="system",
         before={"status": item.status},
         after={"status": "needs_review", "review": REVIEW_CODE, "proposal_id": str(proposal.id)},
         evidence=proposal.payload.get("evidence"),
@@ -116,6 +123,15 @@ def check(session: Session, proposal: Proposal, now: datetime, actor: str) -> st
     return state
 
 
+def effective(session: Session, proposal: Proposal, now: datetime) -> str:
+    """The status a proposal has now, computed only: nothing is written or locked."""
+    if proposal.status != "pending":
+        return proposal.status
+    current = current_version(session, proposal.item_id)
+    state = validity(proposal.status, proposal.base_version, current, proposal.expires_at, now)
+    return "pending" if state == VALID else state
+
+
 def sweep(session: Session, now: datetime, actor: str) -> dict[str, int]:
     """Check every pending proposal. Returns how many expired and were superseded."""
     query = select(Proposal).where(Proposal.status == "pending").order_by(Proposal.created_at)
@@ -149,7 +165,8 @@ def decidable(session: Session, proposal_id: uuid.UUID, now: datetime) -> Propos
     raised, so the caller should commit either way.
     """
     proposal = load(session, proposal_id)
-    state = check(session, proposal, now, "user")
+    # The API records what it finds; the owner only made the decision
+    state = check(session, proposal, now, "api")
     if state != VALID:
         raise NotPending(state)
     return proposal

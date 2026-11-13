@@ -263,18 +263,38 @@ def test_expiry_by_time(session: Session) -> None:
     assert (item.status, item.due_at) == ("needs_review", FRIDAY)
     last = versions(session, item.id)[-1]
     assert (last.change_type, last.after["review"]) == ("status", "proposal_expired")
+    # Neither the owner nor extraction made this move
+    assert last.actor == "system"
     assert last.message_id == proposal.message_id
     (view,) = list_items(session, ("needs_review",))
     assert view.review == "proposal_expired"
 
 
-def test_expired_proposal_cannot_be_approved(session: Session) -> None:
+def test_unswept_expired_proposal_is_refused_and_recorded(session: Session) -> None:
     item, proposal = posted_and_extended(session, MOVED_LATE)
+    # Past its expiry, but no sweep has recorded it yet
+    assert proposal.status == "pending"
     with pytest.raises(NotPending) as caught:
         approve(session, proposal.id, proposal.payload_hash, RUN + timedelta(days=8))
+    session.commit()
     assert caught.value.status == "expired"
+    session.refresh(proposal)
+    assert (proposal.status, proposal.decided_at) == ("expired", None)
     session.refresh(item)
-    assert item.due_at == FRIDAY
+    assert (item.due_at, item.status) == (FRIDAY, "needs_review")
+    last = versions(session, item.id)[-1]
+    assert (last.actor, last.after["review"]) == ("system", "proposal_expired")
+    (expired,) = events(session, "proposal.expired")
+    assert expired.actor == "api"
+
+
+def test_unswept_expired_proposal_cannot_be_rejected(session: Session) -> None:
+    item, proposal = posted_and_extended(session, MOVED_LATE)
+    with pytest.raises(NotPending):
+        reject(session, proposal.id, RUN + timedelta(days=8))
+    session.commit()
+    session.refresh(proposal)
+    assert proposal.status == "expired"
 
 
 def test_digest_counts_expired_proposals(session: Session) -> None:
@@ -442,13 +462,61 @@ def test_api_unknown_proposal_is_404(client: TestClient) -> None:
     assert resp.status_code == 404
 
 
-def test_api_listing_expires(client: TestClient, session: Session) -> None:
+def snapshot(session: Session) -> dict[str, object]:
+    """Everything a listing could write, to compare before and after."""
+    session.expire_all()
+    statuses = sa.select(Proposal.id, Proposal.status, Proposal.decided_at)
+    item_rows = sa.select(Item.id, Item.status, Item.due_at)
+    return {
+        "proposals": sorted(session.execute(statuses).all()),
+        "items": sorted(session.execute(item_rows).all()),
+        "versions": session.execute(sa.select(sa.func.count()).select_from(ItemVersion)).scalar(),
+        "events": session.execute(sa.select(sa.func.count()).select_from(AuditEvent)).scalar(),
+    }
+
+
+def test_api_listing_shows_expired_without_writing(client: TestClient, session: Session) -> None:
     item, proposal = posted_and_extended(session)
     app.dependency_overrides[get_clock] = lambda: lambda: MONDAY
+    before = snapshot(session)
     assert client.get("/proposals").json() == []
-    assert proposal.status == "expired"
     (shown,) = client.get("/proposals", params={"status": "expired"}).json()
-    assert shown["id"] == str(proposal.id)
+    assert (shown["id"], shown["status"]) == (str(proposal.id), "expired")
+    # Shown as expired, but only the sweep or a decision records it
+    assert snapshot(session) == before
+    assert proposal.status == "pending"
+
+
+def test_api_listing_shows_superseded_without_writing(client: TestClient, session: Session) -> None:
+    item, proposal = posted_and_extended(session)
+    set_status(session, item.id, "done")
+    session.commit()
+    before = snapshot(session)
+    (shown,) = client.get("/proposals", params={"status": "superseded"}).json()
+    assert shown["status"] == "superseded"
+    assert snapshot(session) == before
+
+
+def test_api_listing_pending_writes_nothing(client: TestClient, session: Session) -> None:
+    posted_and_extended(session)
+    before = snapshot(session)
+    (shown,) = client.get("/proposals").json()
+    assert shown["status"] == "pending"
+    assert snapshot(session) == before
+
+
+def test_api_approving_unswept_expired_is_409_and_recorded(
+    client: TestClient, session: Session
+) -> None:
+    item, proposal = posted_and_extended(session)
+    app.dependency_overrides[get_clock] = lambda: lambda: MONDAY
+    body = {"payload_hash": proposal.payload_hash}
+    resp = client.post(f"/proposals/{proposal.id}/approve", json=body)
+    assert (resp.status_code, resp.json()["detail"]) == (409, "Proposal is expired")
+    session.refresh(proposal)
+    assert proposal.status == "expired"
+    session.refresh(item)
+    assert (item.status, item.due_at) == ("needs_review", FRIDAY)
 
 
 def test_api_digest_shows_expired_count(client: TestClient, session: Session) -> None:
