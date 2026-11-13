@@ -31,6 +31,7 @@ async function SignedIn() {
       <span>Signed in</span>
       <Link href="/accounts">Accounts</Link>
       <Link href="/items">Closed items</Link>
+      <Link href="/label">Label emails</Link>
       <button type="submit">Sign out</button>
     </form>
   );

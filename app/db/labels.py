@@ -9,7 +9,7 @@ set. None of them edits a stored row; the database enforces that too.
 set is redrawn, and a correction keeps the old row's version.
 
 Reading: `load_set` reads only `eval_labels`, never `messages`, and returns
-samples in the format of evals/README.md, checked by evals/dataset.py.
+samples in the format of evals/README.md, checked by app/db/label_format.py.
 
 Snapshots and labels of real sets hold real mail. Nothing here logs them.
 """
@@ -21,8 +21,8 @@ from typing import Any
 from sqlalchemy import Select, func, insert, select, update
 from sqlalchemy.orm import Session
 
+from app.db.label_format import HEADER_NAMES, Labels, Sample, Snapshot
 from app.db.models import Account, EvalLabel, Message
-from evals.dataset import HEADER_NAMES, Labels, Sample, Snapshot
 
 
 class LabelError(ValueError):
