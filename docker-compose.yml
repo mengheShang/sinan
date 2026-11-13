@@ -4,11 +4,13 @@
 
 name: sinan
 
+# No fixed `image:` names. Compose names images after the project (sinan-api,
+# sinan-web, ...), so a branch or demo started with `-p <other>` builds its own
+# images and cannot replace the ones the live stack runs.
 x-backend: &backend
   build:
     context: .
     dockerfile: docker/backend.Dockerfile
-  image: sinan-backend:dev
   restart: unless-stopped
   environment:
     SINAN_MODE: ${SINAN_MODE:-demo}
@@ -100,7 +102,6 @@ services:
   web:
     build:
       context: apps/web
-    image: sinan-web:dev
     restart: unless-stopped
     environment:
       API_URL: http://api:8000

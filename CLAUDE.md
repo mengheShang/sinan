@@ -99,4 +99,11 @@ npm run build
 uv run alembic revision --autogenerate -m "description"
 ```
 
+The owner's live stack runs as the Compose project `sinan`, with real mail in its `pgdata` volume. To try a branch or worktree in demo mode:
+- Stop live with `docker compose stop` in the main checkout.
+- Start the branch under another project name: `docker compose -p sinan-try up --build -d`. Clean it up later with `docker compose -p sinan-try down -v`.
+- When you are done, rebuild live from `main` with `docker compose up --build -d`.
+
+Never run `docker compose down -v` without `-p` for another project: on `sinan` it deletes the live data.
+
 Use `127.0.0.1`, not `localhost`, when connecting to the database from the host. On Windows, `localhost` tries IPv6 first and the connection takes about two minutes to time out.
