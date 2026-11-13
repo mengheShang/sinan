@@ -1,6 +1,6 @@
 """Decide item_update proposals: approve, reject, expire and supersede.
 
-ADR 0009, decisions 2 and 6, and ADR 0013. Every path checks a proposal
+ADR 0009, decisions 2 and 6, and ADR 0014. Every path checks a proposal
 with the same function, app.proposals.validity:
 
 - reading (`effective`) computes the status and writes nothing;

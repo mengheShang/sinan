@@ -2,7 +2,7 @@
 
 All sit behind the login like every other route. Listing writes nothing:
 it computes each proposal's status now (expiry and superseding, ADR 0009
-decision 6, ADR 0013) with the same function that approving and rejecting
+decision 6, ADR 0014) with the same function that approving and rejecting
 use; those record what they find in their own transaction, and the Worker's
 sweep records the rest. Approving writes only the local database; nothing
 external is touched.

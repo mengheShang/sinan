@@ -5,7 +5,7 @@ Revises: 0005
 Create Date: 2026-11-13
 
 A version that no person and no extraction made, such as an item moving to
-needs_review because its proposed change expired unanswered (ADR 0013), is
+needs_review because its proposed change expired unanswered (ADR 0014), is
 recorded with actor `system`. Only the CHECK on `item_versions.actor`
 changes: `extraction` and `user` keep their meaning, and the rule that an
 extraction version points at its email and evidence is unchanged.

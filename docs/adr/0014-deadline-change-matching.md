@@ -1,4 +1,4 @@
-# ADR 0013: Deadline-change matching and item_update proposals
+# ADR 0014: Deadline-change matching and item_update proposals
 
 - Status: Accepted
 - Date: 2026-11-13
