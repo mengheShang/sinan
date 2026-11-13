@@ -6,6 +6,7 @@ export type Due = {
   zone_assumed: boolean;
   time_assumed: boolean;
   date_computed: boolean;
+  time_carried: boolean;
 };
 
 export type Proposal = {

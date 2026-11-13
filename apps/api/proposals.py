@@ -44,6 +44,7 @@ class DueOut(BaseModel):
     zone_assumed: bool
     time_assumed: bool
     date_computed: bool
+    time_carried: bool
 
 
 class ProposalOut(BaseModel):
@@ -77,6 +78,7 @@ def due_out(part: Any) -> DueOut:
         zone_assumed=flags.zone,
         time_assumed=flags.time,
         date_computed=flags.date,
+        time_carried=flags.carried,
     )
 
 

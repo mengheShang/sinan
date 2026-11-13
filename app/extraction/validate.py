@@ -50,6 +50,9 @@ class ValidItem:
     time_assumed: bool = False
     # The date is the email's date plus a count ("in 3 days")
     date_computed: bool = False
+    # The time of day comes from the item a change updates (ADR 0016,
+    # decision 7); set only on proposals, never here
+    time_carried: bool = False
 
 
 @dataclass(frozen=True)

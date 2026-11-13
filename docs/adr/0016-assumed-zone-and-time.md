@@ -1,6 +1,6 @@
 # ADR 0016: Assume the owner's zone and end of day when a deadline omits them
 
-- Status: Proposed
+- Status: Accepted (2026-11-13)
 - Date: 2026-11-13
 - Decider: Menghe
 
@@ -38,9 +38,9 @@ These still need review: numeric dates (`numeric_date`), "midnight" (`midnight`)
 - "in a few days", "in a couple of weeks", "in several days", "soon" and other vague spans stay in review.
 - A time written next to the count is used: "in 2 weeks 5pm PT" is 17:00 PT on that day.
 
-## Implementation choices (for the owner's review)
+## Implementation choices
 
-These follow from rules 1 to 5 but were not spelled out in #65.
+These follow from rules 1 to 5 but were not spelled out in #65. The owner accepted decisions 6 to 9 as written and changed decision 10 in the review of PR #69 (2026-11-13).
 
 ### 6. A named zone that is not understood is never replaced
 
@@ -61,11 +61,22 @@ The time check looks at the evidence only, not the whole body, because course ma
 
 ### 9. Where the flags are stored
 
-`zone_assumed`, `time_assumed` and `date_computed` are stored in the `after` data of the `item_versions` row that sets the due time: the create version, or the version an approved proposal appends. Both sides of an `item_update` proposal's payload carry them too, so the hash covers what the owner sees. No migration is needed. Readers take the flags from the newest version whose `after` has `due_at`; data saved before this ADR has no flags, which reads as nothing assumed.
+`zone_assumed`, `time_assumed`, `date_computed` and `time_carried` (decision 10) are stored in the `after` data of the `item_versions` row that sets the due time: the create version, or the version an approved proposal appends. Both sides of an `item_update` proposal's payload carry them too, so the hash covers what the owner sees. No migration is needed. Readers take the flags from the newest version whose `after` has `due_at`; data saved before this ADR has no flags, which reads as nothing assumed.
 
-### 10. Proposals compare due times as before
+### 10. A date-only change keeps the earlier time of day (owner, changed in review)
 
-Change matching (ADR 0014) still compares the parsed `due_at`. A change whose time or zone was assumed and that differs from the item's time becomes a proposal as usual, and the proposal shows the assumed parts on both sides. Nothing is applied without the owner's approval.
+When a deadline change gives a date but no time ("Homework 3 is now due Nov 20") and the matched item's current due time has a time of day that was not itself assumed, the proposal keeps that time of day on the new date, in the item's zone. It records `time_carried` instead of `time_assumed`, and the Dashboard shows "time from earlier deadline" on the proposal and, once approved, on the item.
+
+- The time is the item's wall-clock time in its zone, not its UTC offset: an item due 5:00 PM PDT moved to a date after the fall-back change is due 5:00 PM PST. The item's zone is read again from its stored `due_raw` (`zone_of`), with `SINAN_TIMEZONE` when it names none; "PST" and "PDT" both mean America/Los_Angeles here.
+- If the item's time was itself assumed (23:59), the change keeps 23:59 and "time not stated".
+- If the change gives a time, it is used.
+- If the change gives no date, nothing changes: it is still a review case.
+- An assumed zone on the change still follows rules 1 and 4 and decision 8. The zone stays marked assumed only when neither the item nor the change stated one.
+- Nothing is carried, and the change keeps 23:59 "time not stated", when the change states a zone different from the item's, when the item's zone needs review, or when the time does not exist or happens twice on the new date (DST).
+- This happens before change matching compares due times (ADR 0014), so a date-only reminder of the same day ("still due Nov 13") proposes nothing.
+- The flag is in the proposal's payload, so the hash covers it. Approving copies it into the new version's `after`, like the other flags.
+
+The rule is in `app/items/carry.py`, called from `app/items/changes.py`.
 
 ## Consequences
 

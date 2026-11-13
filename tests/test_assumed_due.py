@@ -23,6 +23,7 @@ from app.db.digest import make_digest
 from app.db.extract import extract_pending
 from app.db.models import Account, Item, ItemVersion, Message, Proposal
 from app.extraction.prefilter import Rules
+from app.proposals import payload_hash
 from app.providers.fakes import FakeExtractor
 from apps.api.auth import COOKIE, get_auth
 from apps.api.clock import get_clock
@@ -42,6 +43,9 @@ DATE_ONLY = "Homework 3 is due Friday Nov 13."
 NO_ZONE = "Homework 3 is now due Monday Nov 16 at 5pm."
 STATED = "Homework 3 is now due Tuesday Nov 17 at 11:59pm PT."
 COUNTED = "Homework 3 is due in 3 days."
+POSTED_5PM = "Homework 3 is due Friday Nov 13 at 5pm PT."
+MOVED_DATE = "Homework 3 is now due Nov 20."
+SAME_DAY = "Homework 3 is still due Nov 13."
 
 
 def entry(evidence: str, due_raw: str, change: str) -> str:
@@ -61,6 +65,9 @@ REPLIES = {
     NO_ZONE: entry(NO_ZONE, "Monday Nov 16 at 5pm", "update"),
     STATED: entry(STATED, "Tuesday Nov 17 at 11:59pm PT", "update"),
     COUNTED: entry(COUNTED, "in 3 days", "create"),
+    POSTED_5PM: entry(POSTED_5PM, "Friday Nov 13 at 5pm PT", "create"),
+    MOVED_DATE: entry(MOVED_DATE, "Nov 20", "update"),
+    SAME_DAY: entry(SAME_DAY, "Nov 13", "update"),
 }
 
 
@@ -255,3 +262,60 @@ def test_overdue_and_past_show_the_flags(client: TestClient, session: Session) -
     (past,) = client.get("/items/past").json()["past"]
     assert past["zone_assumed"] is True
     assert past["time_assumed"] is True
+
+
+# ---- ADR 0016, decision 7: a date-only change keeps the earlier time ----
+
+
+def test_date_only_change_keeps_the_time_of_day(client: TestClient, session: Session) -> None:
+    mail(session, POSTED_5PM, 0)
+    mail(session, MOVED_DATE, 24)
+    extract(session)
+    proposal = only_proposal(session)
+    after = proposal.payload["after"]
+    # Nov 20 at 5pm PST, not 23:59
+    assert after["due_at"] == "2026-11-21T01:00:00Z"
+    assert after["time_carried"] is True
+    assert after["time_assumed"] is False
+    assert after["zone_assumed"] is False
+    assert proposal.payload["before"]["time_carried"] is False
+    # The flag is part of the hashed payload
+    assert payload_hash(proposal.payload) == proposal.payload_hash
+    flipped = {**proposal.payload, "after": {**after, "time_carried": False}}
+    assert payload_hash(flipped) != proposal.payload_hash
+    (shown,) = client.get("/proposals").json()
+    assert shown["after"]["time_carried"] is True
+    assert shown["after"]["time_assumed"] is False
+
+
+def test_approved_carried_time_shows_on_the_item(client: TestClient, session: Session) -> None:
+    mail(session, POSTED_5PM, 0)
+    mail(session, MOVED_DATE, 24)
+    extract(session)
+    proposal = only_proposal(session)
+    approve(session, proposal.id, proposal.payload_hash, RUN)
+    session.commit()
+    item = only_item(session)
+    assert item.due_at == datetime(2026, 11, 21, 1, 0, tzinfo=UTC)
+    assert newest_after(session, item.id)["time_carried"] is True
+    (shown,) = client.get("/items").json()
+    assert shown["time_carried"] is True
+    assert shown["time_assumed"] is False
+
+
+def test_date_only_reminder_of_the_same_day_proposes_nothing(session: Session) -> None:
+    mail(session, POSTED_5PM, 0)
+    mail(session, SAME_DAY, 24)
+    extract(session)
+    assert session.execute(sa.select(Proposal)).first() is None
+    assert only_item(session).due_at == datetime(2026, 11, 14, 1, 0, tzinfo=UTC)
+
+
+def test_earlier_assumed_time_is_not_carried(session: Session) -> None:
+    mail(session, DATE_ONLY, 0)
+    mail(session, MOVED_DATE, 24)
+    extract(session)
+    after = only_proposal(session).payload["after"]
+    assert after["due_at"] == "2026-11-21T07:59:00Z"
+    assert after["time_assumed"] is True
+    assert after["time_carried"] is False

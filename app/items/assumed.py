@@ -1,10 +1,10 @@
 """Which parts of a due time were assumed rather than written (ADR 0016).
 
 Pure functions only. The flags are stored in JSON data as `zone_assumed`,
-`time_assumed` and `date_computed`: in the `after` data of the item version that set the
-due time (the create version, or an applied update) and in both sides of an
-item_update proposal's payload. Data written before ADR 0016 has no flags,
-which reads as nothing assumed.
+`time_assumed`, `date_computed` and `time_carried`: in the `after` data of
+the item version that set the due time (the create version, or an applied
+update) and in both sides of an item_update proposal's payload. Data written
+before ADR 0016 has no flags, which reads as nothing assumed.
 """
 
 from collections.abc import Mapping
@@ -20,6 +20,8 @@ class Assumed:
     time: bool = False
     # The date is the email's date plus a count ("in 3 days")
     date: bool = False
+    # The time of day comes from the earlier deadline a change updates
+    carried: bool = False
 
 
 NOTHING = Assumed()
@@ -32,7 +34,8 @@ def assumed_of(data: Mapping[str, Any] | None) -> Assumed:
     zone = data.get("zone_assumed") is True
     time = data.get("time_assumed") is True
     date = data.get("date_computed") is True
-    return Assumed(zone, time, date)
+    carried = data.get("time_carried") is True
+    return Assumed(zone, time, date, carried)
 
 
 def assumed_fields(flags: Assumed) -> dict[str, bool]:
@@ -41,4 +44,5 @@ def assumed_fields(flags: Assumed) -> dict[str, bool]:
         "zone_assumed": flags.zone,
         "time_assumed": flags.time,
         "date_computed": flags.date,
+        "time_carried": flags.carried,
     }

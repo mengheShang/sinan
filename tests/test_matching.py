@@ -127,5 +127,6 @@ def test_item_update_payload_hashes() -> None:
         "zone_assumed": False,
         "time_assumed": False,
         "date_computed": False,
+        "time_carried": False,
     }
     assert len(payload_hash(payload)) == 64
