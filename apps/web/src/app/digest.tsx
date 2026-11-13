@@ -7,6 +7,8 @@ import { localDate, localTime, reviewText } from "@/lib/format";
 import { apiFetch } from "@/lib/session";
 import styles from "./digest.module.css";
 import { setStatus } from "./items/actions";
+import { ProposalList } from "./proposals/list";
+import type { Proposal } from "./proposals/types";
 
 export type Item = {
   id: string;
@@ -33,6 +35,7 @@ type Digest = {
   new: Item[];
   due_soon: Item[];
   needs_review: Item[];
+  expired_proposals: number;
 };
 
 type Account = {
@@ -179,6 +182,13 @@ function DigestView({ digest }: { digest: Digest | null | "error" }) {
     <>
       <p className={styles.meta}>
         {localDate(digest.digest_date)} · made {localTime(digest.generated_at, zone)}
+        {digest.expired_proposals > 0 ? (
+          <>
+            {" "}
+            · {digest.expired_proposals} proposed{" "}
+            {digest.expired_proposals === 1 ? "change" : "changes"} expired unanswered
+          </>
+        ) : null}
         {closed.size > 0 ? (
           <>
             {" "}
@@ -248,16 +258,18 @@ function AccountPanel({ accounts, zone }: { accounts: Account[] | "error"; zone:
   );
 }
 
-// Loads both in parallel; account times use the digest zone, or UTC before the first digest
+// Loads all three in parallel; account times use the digest zone, or UTC before the first digest
 export async function Dashboard() {
-  const [digest, accounts] = await Promise.all([
+  const [digest, accounts, proposals] = await Promise.all([
     load<Digest | null>("/digest"),
     load<Account[]>("/accounts"),
+    load<Proposal[]>("/proposals"),
   ]);
   const zone = digest && digest !== "error" ? digest.timezone : "UTC";
   return (
     <>
       <AccountPanel accounts={accounts} zone={zone} />
+      <ProposalList proposals={proposals} zone={zone} />
       <DigestView digest={digest} />
     </>
   );

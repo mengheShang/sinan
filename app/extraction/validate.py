@@ -9,8 +9,10 @@ Nothing the model says is trusted on its own (ADR 0007):
 - `due_raw` must appear inside the evidence. If it does not, the item is kept
   without a time and marked `needs_review`.
 - `due_at` always comes from `parse_due`, never from the model.
-- An "update" is kept as a new item marked `needs_review` until M2 matches it
-  to the item it changes.
+- An "update" is marked `needs_review` (`unmatched_update`) here. Extraction
+  then matches it to the item it changes (app/items/changes.py): one match
+  becomes a proposal instead of an item, and only an unmatched or ambiguous
+  change is saved as an item.
 """
 
 import json

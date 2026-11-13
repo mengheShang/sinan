@@ -16,7 +16,7 @@ never change for a given payload:
 
 import hashlib
 import json
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 HASH_PATTERN = r"^[0-9a-f]{64}$"
@@ -76,3 +76,72 @@ def expiry(created: datetime, due: datetime | None, ttl_days: int) -> datetime:
     if due.tzinfo is None:
         raise ValueError("due must be timezone-aware")
     return min(limit, due)
+
+
+# ---- Validity (ADR 0009, decision 6) ----
+
+PENDING = "pending"
+VALID = "valid"
+EXPIRED = "expired"
+SUPERSEDED = "superseded"
+
+
+def validity(
+    status: str,
+    base_version: int,
+    current_version: int,
+    expires_at: datetime,
+    now: datetime,
+) -> str:
+    """Whether a proposal can still be decided: "valid", "expired",
+    "superseded", or its own status when it is no longer pending.
+
+    The one check used both when proposals are read and right before one is
+    applied. Superseded wins over expired: when the item has already changed,
+    the stale proposal needs no review of its own.
+    """
+    if status != PENDING:
+        return status
+    if current_version != base_version:
+        return SUPERSEDED
+    if now >= expires_at:
+        return EXPIRED
+    return VALID
+
+
+# ---- item_update payloads ----
+
+
+def utc_text(when: datetime | None) -> str | None:
+    """A UTC time as canonical text, such as 2026-11-17T07:59:00Z."""
+    if when is None:
+        return None
+    if when.tzinfo is None:
+        raise ValueError("time must be timezone-aware")
+    return when.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def parse_utc(text: str | None) -> datetime | None:
+    """The inverse of utc_text."""
+    if text is None:
+        return None
+    return datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+
+
+def item_update(
+    item_id: str,
+    before: tuple[str | None, datetime | None],
+    after: tuple[str | None, datetime | None],
+    evidence: str,
+) -> dict[str, Any]:
+    """The payload of an item_update proposal: a new due time for one item.
+
+    `before` and `after` are (due_raw, due_at). The hash covers what the
+    owner sees: both times and the evidence.
+    """
+    return {
+        "item_id": item_id,
+        "before": {"due_raw": before[0], "due_at": utc_text(before[1])},
+        "after": {"due_raw": after[0], "due_at": utc_text(after[1])},
+        "evidence": evidence,
+    }

@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -9,10 +10,12 @@ import pytest
 
 from app.extraction.prefilter import EXAMPLE_RULES, Rules, load_rules
 from app.extraction.prompt import PROMPT_VERSION
+from app.extraction.validate import check
 from evals import dataset, replies
 from evals.dataset import Sample, SetError
+from evals.metrics import Found
 from evals.run import SETS, LiveReply, evaluate, live_extractor, main
-from evals.runner import report, run
+from evals.runner import Linker, Outcome, found_of, report, run
 
 SAMPLE = {
     "id": "t-001",
@@ -244,3 +247,48 @@ def test_cli_writes_the_report(tmp_path: Path) -> None:
 def test_cli_refuses_save_replies_without_live(tmp_path: Path) -> None:
     with pytest.raises(SetError, match="only works with --live"):
         main(["--save-replies", str(tmp_path / "r.json")])
+
+
+def test_changes_link_through_a_chain() -> None:
+    """A change links to the item found for its target; the next change to it."""
+    linker = Linker()
+    first = found_one("a", "create", "Friday Nov 13 at 11:59pm PT", linker)
+    second = found_one("b", "update", "Monday Nov 16 at 11:59pm PT", linker)
+    third = found_one("c", "update", "Monday Nov 30 at 11:59pm PT", linker)
+    assert first.target is None
+    assert second.target == first.uid
+    assert third.target == second.uid
+
+
+def test_change_in_the_same_email_is_not_linked() -> None:
+    linker = Linker()
+    found_one("a", "create", "Friday Nov 13 at 11:59pm PT", linker)
+    assert found_one("a", "update", "Monday Nov 16 at 11:59pm PT", linker).target is None
+
+
+def test_unparsed_change_is_not_linked() -> None:
+    linker = Linker()
+    found_one("a", "create", "Friday Nov 13 at 11:59pm PT", linker)
+    assert found_one("b", "update", "11/30", linker).target is None
+
+
+def test_synthetic_changes_score() -> None:
+    change = synthetic_report()["metrics"]["change_accuracy"]
+    assert change["hits"] == change["total"] > 0
+
+
+def found_one(sample_id: str, change: str, due_raw: str, linker: Linker) -> Found:
+    evidence = f"Homework 3 is due {due_raw}."
+    item = {
+        "kind": "deadline",
+        "course": "CS 000",
+        "title": "Homework 3",
+        "evidence": evidence,
+        "due_raw": due_raw,
+        "change_type": change,
+    }
+    sent = datetime(2026, 11, 2, 17, 0, tzinfo=UTC)
+    checked = check(json.dumps({"items": [item]}), evidence, sent)
+    sample = one_sample().model_copy(update={"id": sample_id})
+    (found,) = found_of(Outcome(sample, False, checked), linker)
+    return found

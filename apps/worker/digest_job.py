@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.actions.proposals import sweep
 from app.config import Settings
 from app.db.digest import make_digest
 from app.db.models import Item
@@ -38,7 +39,11 @@ def digest_today(sessions: SessionFactory, settings: Settings, clock: Clock = ut
         if force and not has_items(session):
             return False
         try:
-            made = make_digest(session, clock(), settings.zone(), settings.sinan_digest_hour, force)
+            now = clock()
+            # Expire and supersede first, so the digest counts and flags them
+            sweep(session, now, "worker")
+            session.commit()
+            made = make_digest(session, now, settings.zone(), settings.sinan_digest_hour, force)
         except Exception as exc:
             log.warning("Digest failed: %s", type(exc).__name__)
             return False

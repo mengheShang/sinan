@@ -13,7 +13,15 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Session
 
 from app.db.extract import extract_pending
-from app.db.models import Account, AuditEvent, ExtractionRun, Item, ItemVersion, Message
+from app.db.models import (
+    Account,
+    AuditEvent,
+    ExtractionRun,
+    Item,
+    ItemVersion,
+    Message,
+    Proposal,
+)
 from app.extraction.prefilter import EXAMPLE_RULES, Rules, RuleSet, load_rules
 from app.extraction.prompt import PROMPT_HASH, PROMPT_VERSION
 from app.providers.demo_data import DEMO_MESSAGES, DEMO_RESPONSES
@@ -94,16 +102,18 @@ def test_demo_mailbox_end_to_end(session: Session) -> None:
     fake = FakeExtractor(DEMO_RESPONSES)
     counts = extract_pending(session, fake, load_rules(EXAMPLE_RULES), cap=100)
     assert counts.extracted == len(DEMO_MESSAGES)
-    assert counts.items == 3
+    # The extension becomes a proposal for the first Homework 3, not an item
+    assert (counts.items, counts.proposals) == (2, 1)
     items = list(session.execute(sa.select(Item).order_by(Item.title)).scalars())
     titles = [(i.title, i.status) for i in items]
     assert titles == [
         ("Homework 3", "open"),
-        ("Homework 3", "needs_review"),
         ("Sign up for a project group", "open"),
     ]
-    first = next(i for i in items if i.status == "open" and i.title == "Homework 3")
+    first = items[0]
     assert first.due_at == datetime(2026, 11, 14, 7, 59, tzinfo=UTC)
+    proposal = session.execute(sa.select(Proposal)).scalar_one()
+    assert (proposal.item_id, proposal.status, proposal.base_version) == (first.id, "pending", 1)
 
 
 def test_item_version_points_at_message_run_and_evidence(session: Session) -> None:

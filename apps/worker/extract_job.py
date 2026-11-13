@@ -34,7 +34,11 @@ def load_prefilter(settings: Settings) -> Rules:
 
 
 def extract_all(
-    sessions: SessionFactory, extractor: Extractor | None, rules: Rules, cap: int
+    sessions: SessionFactory,
+    extractor: Extractor | None,
+    rules: Rules,
+    cap: int,
+    ttl_days: int = 7,
 ) -> Counts | None:
     """Run one extraction pass. Returns its counts, or None when it did not run."""
     if extractor is None:
@@ -42,15 +46,16 @@ def extract_all(
         return None
     with sessions() as session:
         try:
-            counts = extract_pending(session, extractor, rules, cap)
+            counts = extract_pending(session, extractor, rules, cap, ttl_days)
         except Exception as exc:
             # Class name only: exception text could quote mail content
             log.warning("Extraction failed: %s", type(exc).__name__)
             return None
     log.info(
-        "Extraction: %d sent, %d skipped, %d items",
+        "Extraction: %d sent, %d skipped, %d items, %d proposals",
         counts.extracted + counts.invalid + counts.errors,
         counts.skipped,
         counts.items,
+        counts.proposals,
     )
     return counts
