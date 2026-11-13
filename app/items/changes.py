@@ -49,7 +49,7 @@ class Source:
 
 
 def message_time() -> ColumnElement[datetime]:
-    """SQL for a message's date, as sent_of computes it."""
+    """SQL for a message's date: the Date header, else when it was received."""
     return func.coalesce(Message.sent_at, Message.received_at)
 
 
