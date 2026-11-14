@@ -147,6 +147,24 @@ def test_rerun_skips_messages_already_done(session: Session) -> None:
     assert count(session, Item) == 1
 
 
+def test_new_prompt_version_reads_only_new_mail(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    account = add_account(session)
+    add_message(session, account, DEMO_MESSAGES[0].body_text or "")
+    add_message(session, account, "Big sale today.", sender="deals@shop.example.com", minutes=1)
+    rules = Rules(skip=RuleSet(senders=frozenset({"deals@shop.example.com"})))
+    fake = FakeExtractor(DEMO_RESPONSES)
+    extract_pending(session, fake, rules, cap=10)
+    # Both the extracted and the skipped message stay done under a new version
+    monkeypatch.setattr("app.db.extract.PROMPT_VERSION", "v-next")
+    again = extract_pending(session, fake, NO_RULES, cap=10)
+    assert (again.extracted, again.skipped) == (0, 0)
+    assert len(fake.calls) == 1
+    assert count(session, Item) == 1
+    assert len(runs(session)) == 2
+
+
 def test_prefilter_skip_is_recorded_and_never_sent(session: Session) -> None:
     account = add_account(session)
     add_message(session, account, "Big sale today.", sender="deals@shop.example.com")

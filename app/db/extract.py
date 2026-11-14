@@ -1,6 +1,6 @@
 """Run prefilter and extraction over stored messages, and save the results.
 
-For each message without a run for the current prompt version:
+For each message that has never been extracted, under any prompt version:
 
 1. The prefilter decides. A skip is saved as a `skipped` run with its reason
    code, and the message never reaches the model.
@@ -18,7 +18,10 @@ For each message without a run for the current prompt version:
    change as a new item marked needs_review. A notice is never matched
    (ADR 0017).
 
-One run row per message and prompt version, so a rerun skips what is done.
+A message with a run under any prompt version is done, so a rerun skips it,
+and a new prompt version changes only how new mail is read (ADR 0016,
+"Consequences": re-extracting older mail is a separate, deliberate step).
+The table still allows one run per message and prompt version, for that step.
 A service error (network, rate limit, bad key) saves nothing and ends the
 cycle, so those messages are tried again next time.
 """
@@ -79,8 +82,13 @@ class Counts:
 
 
 def pending(session: Session) -> list[tuple[uuid.UUID, str]]:
-    """IDs and account roles of messages with no run for this prompt version."""
-    done = select(ExtractionRun.message_id).where(ExtractionRun.prompt_version == PROMPT_VERSION)
+    """IDs and account roles of messages with no run under any prompt version.
+
+    A new prompt version applies to new mail only. Treating every older
+    message as pending again would send all stored mail back to the model
+    and save its items a second time.
+    """
+    done = select(ExtractionRun.message_id)
     query = (
         select(Message.id, Account.role)
         .join(Account, Account.id == Message.account_id)
