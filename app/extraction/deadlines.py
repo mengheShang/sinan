@@ -527,6 +527,19 @@ def names_time(text: str) -> bool:
     return any(p.search(lowered) for p in patterns)
 
 
+def zone_of(due_raw: str, home: tzinfo = HOME) -> tzinfo | None:
+    """The region of the zone `due_raw` names, `home` when it names none, or
+    None when its zone needs review. "PST" gives America/Los_Angeles."""
+    offsets = find_offsets(normalize(due_raw))
+    if isinstance(offsets, str):
+        return None
+    text, fixed = offsets
+    found = find_zone(text, fixed)
+    if isinstance(found, str):
+        return None
+    return home if found is None else found.region
+
+
 def counted_elsewhere(text: str) -> str | None:
     """Why a found day is not the real one: it counts from an event or a span."""
     if SPAN_RE.search(text):

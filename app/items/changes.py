@@ -11,6 +11,8 @@ time parsed (ADR 0009, decisions 2 and 6; technical design "DDL changes"):
   came from a newer email, or a pending proposal for it did, the change is
   dropped and counted as stale. A change from a newer email supersedes the
   target's pending proposals from older emails.
+- A change that gives a date but no time keeps the time of day of the
+  item's current due time (app/items/carry.py, ADR 0016 decision 7).
 - A change that gives the time the item already has proposes nothing (it
   still supersedes older pending proposals, since it confirms that time).
 
@@ -21,7 +23,7 @@ statuses. Nothing is applied here; the owner decides in the Dashboard.
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, tzinfo
 from typing import Literal
 
 from sqlalchemy import func, select
@@ -31,6 +33,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from app.db.models import AuditEvent, ExtractionRun, Item, ItemVersion, Message, Proposal
 from app.extraction.validate import ValidItem
 from app.items.assumed import Assumed, assumed_of
+from app.items.carry import carry_time
 from app.items.matching import Known, match
 from app.proposals import expiry, item_update, payload_hash
 
@@ -143,7 +146,7 @@ def create(
     before = (target.due_raw, target.due_at)
     after = (item.due_raw, item.due_at)
     old = current_assumed(session, target.id)
-    new = Assumed(item.zone_assumed, item.time_assumed, item.date_computed)
+    new = Assumed(item.zone_assumed, item.time_assumed, item.date_computed, item.time_carried)
     payload = item_update(str(target.id), before, after, item.evidence, old, new)
     proposal = Proposal(
         kind="item_update",
@@ -162,8 +165,14 @@ def create(
     return proposal
 
 
-def propose(session: Session, item: ValidItem, source: Source, now: datetime, ttl: int) -> Result:
-    """Match one extracted change and propose it when there is one target."""
+def propose(
+    session: Session, item: ValidItem, source: Source, now: datetime, ttl: int, home: tzinfo
+) -> Result:
+    """Match one extracted change and propose it when there is one target.
+
+    `home` is SINAN_TIMEZONE, for reading the item's zone when its due time
+    names none.
+    """
     found = match(item.course, item.title, pool(session, source.message.id))
     if found.outcome != "one" or found.target is None:
         return "several" if found.outcome == "several" else "none"
@@ -172,6 +181,8 @@ def propose(session: Session, item: ValidItem, source: Source, now: datetime, tt
     if is_stale(session, target.id, source.sent_at):
         return "stale"
     supersede_older(session, target.id, source.sent_at)
+    flags = current_assumed(session, target.id)
+    item = carry_time(item, target.due_raw, target.due_at, flags, home)
     if target.due_at == item.due_at:
         return "unchanged"
     create(session, item, target, source, now, ttl)

@@ -7,6 +7,7 @@ export type Assumed = {
   zone_assumed: boolean;
   time_assumed: boolean;
   date_computed: boolean;
+  time_carried: boolean;
 };
 
 export function assumedParts(due: Assumed): string[] {
@@ -16,6 +17,9 @@ export function assumedParts(due: Assumed): string[] {
   }
   if (due.zone_assumed) {
     parts.push("zone assumed");
+  }
+  if (due.time_carried) {
+    parts.push("time from earlier deadline");
   }
   if (due.time_assumed) {
     parts.push("time not stated");

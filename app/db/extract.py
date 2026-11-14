@@ -10,7 +10,8 @@ For each message without a run for the current prompt version:
    `item_versions` row, which points at the message, the run and the evidence.
    Its `after` data also says whether the due time's zone or time was
    assumed, or its date computed from the email date (ADR 0016):
-   `zone_assumed`, `time_assumed` and `date_computed`.
+   `zone_assumed`, `time_assumed`, `date_computed` and `time_carried`
+   (the last is true only on a version an approved proposal appends).
 4. An item the model marks as an update, with a parsed due time, is matched
    to the item it changes (app/items/changes.py). One match becomes a
    pending proposal instead of a new item; several matches or none save the
@@ -118,6 +119,7 @@ def after_fields(item: ValidItem) -> dict[str, object]:
         "zone_assumed": item.zone_assumed,
         "time_assumed": item.time_assumed,
         "date_computed": item.date_computed,
+        "time_carried": item.time_carried,
     }
 
 
@@ -154,6 +156,7 @@ class Context:
     ms: int
     now: datetime
     ttl_days: int
+    home: tzinfo = HOME
 
 
 def is_change(item: ValidItem) -> bool:
@@ -165,7 +168,7 @@ def save_change(
     session: Session, item: ValidItem, source: Source, ctx: Context, counts: Counts
 ) -> int:
     """Propose a change, or save it as an item. Returns the number of items saved."""
-    result = propose(session, item, source, ctx.now, ctx.ttl_days)
+    result = propose(session, item, source, ctx.now, ctx.ttl_days, ctx.home)
     if result == "proposed":
         counts.proposals += 1
         return 0
@@ -244,7 +247,7 @@ def extract_one(
         return
     ms = int((time.monotonic() - start) * 1000)
     checked = check(raw, msg.body_text or "", when, policy.home)
-    ctx = Context(extractor.model, ms, policy.clock(), policy.ttl_days)
+    ctx = Context(extractor.model, ms, policy.clock(), policy.ttl_days, policy.home)
     counts.items += save_checked(session, msg, checked, ctx, counts)
     if checked.status == "ok":
         counts.extracted += 1

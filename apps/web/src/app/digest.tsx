@@ -29,6 +29,7 @@ export type Item = {
   zone_assumed: boolean;
   time_assumed: boolean;
   date_computed: boolean;
+  time_carried: boolean;
 };
 
 type Digest = {

@@ -45,6 +45,7 @@ class ItemOut(BaseModel):
     zone_assumed: bool
     time_assumed: bool
     date_computed: bool
+    time_carried: bool
 
 
 class DigestOut(BaseModel):
@@ -89,6 +90,7 @@ def item_out(view: ItemView, live: bool) -> ItemOut:
         zone_assumed=view.assumed.zone,
         time_assumed=view.assumed.time,
         date_computed=view.assumed.date,
+        time_carried=view.assumed.carried,
     )
 
 
