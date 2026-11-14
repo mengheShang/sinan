@@ -11,7 +11,7 @@ import type { Email, ItemLabel, Problem, SaveState } from "./types";
 
 type Draft = {
   ref: string;
-  kind: "deadline" | "todo";
+  kind: "deadline" | "todo" | "notice";
   course: string;
   title: string;
   due_raw: string;
@@ -132,6 +132,7 @@ function ItemFields({ n, draft, zone, refsId, problems, onChange, onRemove }: It
         >
           <option value="deadline">deadline</option>
           <option value="todo">todo</option>
+          <option value="notice">notice</option>
         </select>
         <label htmlFor={id("course")}>course</label>
         <input

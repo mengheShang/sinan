@@ -3,6 +3,10 @@
 The JSON Schema goes to the API as a structured output format. The Pydantic
 models check the reply again in deterministic code, so a reply that breaks
 the schema, adds a field or asks for an action is refused either way.
+
+`kind` is the only field that ranks an item: "notice" makes it less
+prominent (ADR 0017). No value makes an item more prominent or lets the
+model act.
 """
 
 from typing import Any, Literal
@@ -14,12 +18,13 @@ MAX_TITLE = 200
 MAX_COURSE = 50
 MAX_DUE_RAW = 200
 MAX_EVIDENCE = 1000
+KINDS = ("deadline", "todo", "notice")
 
 
 class ExtractedItem(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    kind: Literal["deadline", "todo"]
+    kind: Literal["deadline", "todo", "notice"]
     course: str | None = Field(max_length=MAX_COURSE)
     title: str = Field(min_length=1, max_length=MAX_TITLE)
     due_raw: str | None = Field(max_length=MAX_DUE_RAW)
@@ -40,7 +45,7 @@ def nullable(kind: str) -> dict[str, Any]:
 ITEM_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "kind": {"type": "string", "enum": ["deadline", "todo"]},
+        "kind": {"type": "string", "enum": list(KINDS)},
         "course": nullable("string"),
         "title": {"type": "string"},
         "due_raw": nullable("string"),

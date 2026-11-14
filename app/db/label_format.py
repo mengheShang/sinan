@@ -65,7 +65,7 @@ class Snapshot(Strict):
 
 class ItemLabel(Strict):
     ref: Ref
-    kind: Literal["deadline", "todo"]
+    kind: Literal["deadline", "todo", "notice"]
     course: str | None = Field(max_length=50)
     title: str = Field(min_length=1, max_length=200)
     due_raw: str | None = Field(min_length=1, max_length=200)

@@ -15,7 +15,7 @@ export type Problem = { field: string; message: string };
 
 export type ItemLabel = {
   ref: string;
-  kind: "deadline" | "todo";
+  kind: "deadline" | "todo" | "notice";
   course: string | null;
   title: string;
   due_raw: string | null;

@@ -4,7 +4,7 @@ Called by extraction for an item the model marked as an update and whose due
 time parsed (ADR 0009, decisions 2 and 6; technical design "DDL changes"):
 
 - The candidates are the active items (open or needs_review) from other
-  emails, matched by app.items.matching. Exactly one candidate gets a
+  emails, except notices (ADR 0017), matched by app.items.matching. Exactly one candidate gets a
   pending proposal based on its current version. Several or none: the
   caller saves the change as a new item marked needs_review.
 - An older email never overrides a newer one. When the target's due time
@@ -58,14 +58,14 @@ def message_time() -> ColumnElement[datetime]:
 
 
 def pool(session: Session, msg_id: uuid.UUID) -> list[Known[uuid.UUID]]:
-    """Active items, except those first found in this same email."""
+    """Active items except notices and those first found in this same email."""
     same = select(ItemVersion.item_id).where(
         ItemVersion.version == 1,
         ItemVersion.message_id == msg_id,
     )
     query = (
         select(Item.id, Item.course, Item.title)
-        .where(Item.status.in_(ACTIVE), Item.id.not_in(same))
+        .where(Item.status.in_(ACTIVE), Item.kind != "notice", Item.id.not_in(same))
         .order_by(Item.created_at, Item.id)
     )
     rows = session.execute(query).all()

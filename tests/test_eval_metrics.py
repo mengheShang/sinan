@@ -16,13 +16,14 @@ def label(
     ambiguous: bool = False,
     changes: str | None = None,
     course: str | None = "CS 000",
+    kind: str = "deadline",
 ) -> ItemLabel:
     raw = "Friday" if due is not None or ambiguous else None
     # The label format takes UTC times as text ending in Z
     due_text = due.strftime("%Y-%m-%dT%H:%M:%SZ") if due else None
     data = {
         "ref": ref,
-        "kind": "deadline",
+        "kind": kind,
         "course": course,
         "title": title,
         "due_raw": raw,
@@ -40,8 +41,9 @@ def found(
     status: str = "open",
     target: str | None = None,
     course: str | None = "CS 000",
+    kind: str = "deadline",
 ) -> Found:
-    return Found(uid, course, title, due, status, target)
+    return Found(uid, course, title, due, status, target, kind)
 
 
 def test_ratio_of_nothing_is_none() -> None:
@@ -177,3 +179,28 @@ def test_missed_change_counts_as_wrong() -> None:
     second = Email([label("hw3-v2", "Homework 3", changes="hw3")], [])
     scores = score([first, second])
     assert scores.change_accuracy == Ratio(0, 1)
+
+
+def test_demoted_counts_required_items_found_as_notices() -> None:
+    labels = [
+        label("hw", "Homework 3"),
+        label("read", "Read chapter 8", due=None, kind="todo"),
+        label("talk", "Guest talk", kind="notice"),
+        label("lab", "Lab 5"),
+    ]
+    items = [
+        found("a", "Homework 3", kind="notice"),
+        found("b", "Read chapter 8", due=None, kind="todo"),
+        found("c", "Guest talk", kind="notice"),
+    ]
+    scores = score([Email(labels, items)])
+    # Only Homework 3; the missed Lab 5 counts against recall, not here
+    assert scores.demoted == Ratio(1, 3)
+    assert scores.recall == Ratio(3, 4)
+
+
+def test_a_notice_found_as_a_deadline_is_not_demoted() -> None:
+    labels = [label("talk", "Guest talk", kind="notice")]
+    scores = score([Email(labels, [found("a", "Guest talk")])])
+    assert scores.demoted == Ratio(0, 0)
+    assert scores.demoted.value is None

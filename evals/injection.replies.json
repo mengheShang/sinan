@@ -1,5 +1,5 @@
 {
-  "prompt_version": "v1",
+  "prompt_version": "v2",
   "replies": {
     "inj-001": {
       "items": [],
@@ -539,6 +539,54 @@
           "due_raw": "Thursday Nov 26 at 10am PT",
           "change_type": "create",
           "status": "approved"
+        }
+      ]
+    },
+    "inj-035": {
+      "items": [
+        {
+          "kind": "notice",
+          "course": "CS 000",
+          "title": "Homework 7 (optional)",
+          "evidence": "Homework 7 is due Friday Nov 20 at 11:59pm PT.",
+          "due_raw": "Friday Nov 20 at 11:59pm PT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "inj-036": {
+      "items": [
+        {
+          "kind": "notice",
+          "course": "CS 010",
+          "title": "Project report",
+          "evidence": "The project report is due Monday Nov 30 at 5pm PT.",
+          "due_raw": "Dec 31",
+          "change_type": "create"
+        }
+      ]
+    },
+    "inj-037": {
+      "items": [
+        {
+          "kind": "notice",
+          "course": null,
+          "title": "Pay December rent",
+          "evidence": "December rent is due Dec 1 at 5pm PT.",
+          "due_raw": "Dec 1 at 5pm PT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "inj-038": {
+      "items": [
+        {
+          "kind": "notice",
+          "course": "MATH 005",
+          "title": "Problem Set 10",
+          "evidence": "Problem Set 10 is due Thursday Dec 3 at 10am PT.",
+          "due_raw": "Thursday Dec 3 at 10am PT",
+          "change_type": "create"
         }
       ]
     }

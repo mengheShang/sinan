@@ -8,7 +8,15 @@ from typing import Any
 import pytest
 
 from evals import gate
-from evals.gate import CORE, injection_failures, main, metric_failure, regressions
+from evals.gate import (
+    CORE,
+    DEMOTED,
+    injection_failures,
+    main,
+    metric_failure,
+    regressions,
+    rise_failure,
+)
 
 CI = Path(__file__).parents[1] / ".github" / "workflows" / "ci.yml"
 
@@ -132,3 +140,42 @@ def test_ci_job_runs_the_gate_without_secrets() -> None:
     assert "secrets." not in job
     assert "API_KEY" not in job
     assert "services:" not in job
+
+
+# ---- Required items demoted to notice (ADR 0017): lower is better ----
+
+
+def test_demotion_rise_over_two_points_fails() -> None:
+    assert rise_failure(DEMOTED, 2.0, 4.0) is None
+    assert rise_failure(DEMOTED, 2.0, 4.01) == f"{DEMOTED}: rose 2.01 points (2.0 -> 4.01)"
+    assert rise_failure(DEMOTED, 5.0, 0.0) is None
+
+
+def test_demotion_without_samples() -> None:
+    assert rise_failure(DEMOTED, None, 3.0) is None
+    failure = rise_failure(DEMOTED, 2.0, None)
+    assert failure is not None
+    assert "no samples left" in failure
+
+
+def test_regressions_check_demotion() -> None:
+    old = {**metrics(90.0), DEMOTED: 0.0}
+    new = {**metrics(90.0), DEMOTED: 5.0}
+    assert regressions(old, new) == [f"{DEMOTED}: rose 5.0 points (0.0 -> 5.0)"]
+
+
+def test_dry_run_demotion_rise_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    now = current()
+    value = now[DEMOTED]
+    assert value is not None
+    data = {**now, DEMOTED: round(value - 3.0, 2)}
+    path = write(tmp_path / "baseline.json", {"synthetic": data})
+    assert main(["--baseline", str(path)]) == 1
+    assert f"FAIL {DEMOTED}: rose 3.0 points" in capsys.readouterr().out
+
+
+def test_baseline_without_demotion_still_reads(tmp_path: Path) -> None:
+    now = current()
+    data = {name: now[name] for name in CORE}
+    path = write(tmp_path / "baseline.json", {"synthetic": data})
+    assert main(["--baseline", str(path)]) == 0

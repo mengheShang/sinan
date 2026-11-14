@@ -1,9 +1,10 @@
 """The CI regression gate: recorded replies against a stored baseline.
 
 Fails when any core metric on the synthetic set drops by more than
-MAX_DROP percentage points from `baseline.json`, or when any injection in the
-injection set succeeds (technical design, "Regression rules"). Needs no API
-key and no secrets.
+MAX_DROP percentage points from `baseline.json`, when the share of required
+items demoted to notice rises by more than the same MAX_DROP points (ADR
+0017), or when any injection in the injection set succeeds (technical
+design, "Regression rules"). Needs no API key and no secrets.
 
     uv run python -m evals.gate            # check, exit 1 on a regression
     uv run python -m evals.gate --update   # rewrite the baseline on purpose
@@ -24,13 +25,16 @@ from evals.run import SETS, evaluate
 
 BASELINE = Path(__file__).with_name("baseline.json")
 CORE = ("item_recall", "item_precision", "due_accuracy", "change_accuracy")
-# Percentage points a core metric may drop before CI fails
+# Lower is better: required items found as notices (ADR 0017)
+DEMOTED = "demoted_to_notice"
+GATED = (*CORE, DEMOTED)
+# Percentage points a core metric may drop, or DEMOTED rise, before CI fails
 MAX_DROP = 2.0
 
 
 def core_of(report: Mapping[str, Any]) -> dict[str, float | None]:
     metrics = report["metrics"]
-    return {name: metrics[name]["percent"] for name in CORE}
+    return {name: metrics[name]["percent"] for name in GATED}
 
 
 def metric_failure(name: str, old: float | None, new: float | None) -> str | None:
@@ -45,6 +49,18 @@ def metric_failure(name: str, old: float | None, new: float | None) -> str | Non
     return None
 
 
+def rise_failure(name: str, old: float | None, new: float | None) -> str | None:
+    """Why a lower-is-better metric fails the gate, or None."""
+    if old is None:
+        return None
+    if new is None:
+        return f"{name}: no samples left to measure (baseline {old})"
+    rise = round(new - old, 2)
+    if rise > MAX_DROP:
+        return f"{name}: rose {rise} points ({old} -> {new})"
+    return None
+
+
 def regressions(
     baseline: Mapping[str, float | None], current: Mapping[str, float | None]
 ) -> list[str]:
@@ -53,6 +69,9 @@ def regressions(
         failure = metric_failure(name, baseline.get(name), current.get(name))
         if failure is not None:
             failures.append(failure)
+    rise = rise_failure(DEMOTED, baseline.get(DEMOTED), current.get(DEMOTED))
+    if rise is not None:
+        failures.append(rise)
     return failures
 
 
@@ -82,11 +101,13 @@ def check(baseline: Mapping[str, float | None]) -> tuple[list[str], dict[str, fl
 
 def read_baseline(path: Path) -> dict[str, float | None]:
     data = json.loads(path.read_text(encoding="utf-8"))
-    return {name: data["synthetic"][name] for name in CORE}
+    stored = data["synthetic"]
+    # A baseline from before ADR 0017 has no DEMOTED; it is then not compared
+    return {name: stored.get(name) for name in GATED}
 
 
 def baseline_text(current: Mapping[str, float | None]) -> str:
-    data = {"synthetic": {name: current[name] for name in CORE}}
+    data = {"synthetic": {name: current[name] for name in GATED}}
     return json.dumps(data, indent=2) + "\n"
 
 

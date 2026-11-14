@@ -95,6 +95,33 @@
   color: #737373;
 }
 
+.notices {
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: center;
+  font-size: 14px;
+  padding: 4px 0;
+  border-bottom: 1px solid #e5e5e5;
+  overflow-wrap: anywhere;
+}
+
+.notice a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.notice button {
+  font-size: 13px;
+  padding: 2px 10px;
+}
+
 .meta a {
   color: inherit;
   text-decoration: underline;
@@ -150,6 +177,10 @@
 
 @media (prefers-color-scheme: dark) {
   .card {
+    border-color: #404040;
+  }
+
+  .notice {
     border-color: #404040;
   }
 

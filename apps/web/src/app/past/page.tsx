@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
-import { type Item, load, Section } from "../digest";
+import { type Item, load, NoticeSection, Section } from "../digest";
 import styles from "../page.module.css";
 
 export const metadata: Metadata = { title: "Past items · Sinan" };
 
-type Past = { past: Item[]; stale: Item[] };
+type Past = { past: Item[]; stale: Item[]; notices: Item[] };
 type Zone = { timezone: string } | null;
 
 // Open and review items that have left the digest; their status is unchanged
@@ -21,6 +21,12 @@ async function PastItems() {
     <>
       <Section title="Past due" empty="Nothing past due." items={past.past} zone={zone} />
       <Section title="Stale, needs review" empty="No stale items." items={past.stale} zone={zone} />
+      <NoticeSection
+        title="Notices"
+        empty="No notices."
+        items={past.notices}
+        zone={zone}
+      />
     </>
   );
 }
@@ -35,7 +41,8 @@ export default function PastPage() {
       <p className={styles.note}>
         Items whose due time passed more than two days ago, and items needing review with no due
         time whose email is over 14 days old. They left the digest but keep their status: mark
-        them done or dismiss them here.
+        them done or dismiss them here. Notices, newest first, each shown once in a morning
+        digest; make one a to-do if it needs your action.
       </p>
       <Suspense fallback={<p>Loading items…</p>}>
         <PastItems />

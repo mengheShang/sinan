@@ -1,8 +1,9 @@
 """Digest and item endpoints for the Dashboard.
 
 All sit behind the login like every other route. The Worker makes digests;
-the only write here is the owner changing an item's status, which touches
-the local database alone. Proposed changes are in apps/api/proposals.py.
+the only writes here are the owner changing an item's status or making a
+notice a to-do (ADR 0017), which touch the local database alone.
+Proposed changes are in apps/api/proposals.py.
 """
 
 import uuid
@@ -15,6 +16,7 @@ from pydantic import BaseModel
 
 from app.config import Settings, get_settings
 from app.db.digest import ItemView, latest, list_items, past_items, read_digest
+from app.db.item_kind import NotANotice, make_todo
 from app.db.item_status import BadMove, UnknownItem, set_status
 from apps.api.clock import ClockDep
 from apps.api.oauth import SessionDep
@@ -61,6 +63,9 @@ class DigestOut(BaseModel):
     needs_review: list[ItemOut]
     # Proposed changes that expired unanswered since the previous digest
     expired_proposals: int
+    # Found as notices since the previous digest, in their current state;
+    # computed at read time, never stored (ADR 0017)
+    notices: list[ItemOut]
 
 
 def gmail_url(view: ItemView, live: bool) -> str | None:
@@ -116,6 +121,7 @@ def digest(session: SessionDep, settings: SettingsDep, clock: ClockDep) -> Diges
         due_soon=sections["due_soon"],
         needs_review=sections["needs_review"],
         expired_proposals=view.expired_proposals,
+        notices=[item_out(v, live) for v in view.notices],
     )
 
 
@@ -125,7 +131,8 @@ def items(
     settings: SettingsDep,
     status: Annotated[list[Status] | None, Query()] = None,
 ) -> list[ItemOut]:
-    """Items with the given statuses; open and needs_review by default."""
+    """Deadlines and to-dos with the given statuses; open and needs_review by
+    default. Notices are never listed here."""
     wanted = tuple(status) if status else ("open", "needs_review")
     live = settings.sinan_mode == "live"
     return [item_out(v, live) for v in list_items(session, wanted)]
@@ -136,16 +143,20 @@ class PastOut(BaseModel):
     past: list[ItemOut]
     # Needs review, no due time, source email over 14 days old
     stale: list[ItemOut]
+    # Every open notice, most recently received first
+    notices: list[ItemOut]
 
 
 @router.get("/items/past")
 def past(session: SessionDep, settings: SettingsDep, clock: ClockDep) -> PastOut:
-    """Open and needs_review items that have left the digest; still open to act on."""
+    """Open and needs_review items that have left the digest, still open to act
+    on, and every open notice."""
     view = past_items(session, clock())
     live = settings.sinan_mode == "live"
     return PastOut(
         past=[item_out(v, live) for v in view.past],
         stale=[item_out(v, live) for v in view.stale],
+        notices=[item_out(v, live) for v in view.notices],
     )
 
 
@@ -171,3 +182,27 @@ def change_status(item_id: uuid.UUID, body: StatusBody, session: SessionDep) -> 
         raise HTTPException(status.HTTP_409_CONFLICT, detail) from exc
     session.commit()
     return StatusOut(status=body.status, version=version.version)
+
+
+class KindBody(BaseModel):
+    kind: Literal["todo"]
+
+
+class KindOut(BaseModel):
+    kind: str
+    version: int
+
+
+@router.post("/items/{item_id}/kind")
+def change_kind(item_id: uuid.UUID, body: KindBody, session: SessionDep) -> KindOut:
+    """Make a notice a to-do. 409 when the item is not a notice, e.g. a second click."""
+    try:
+        version = make_todo(session, item_id)
+    except UnknownItem as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown item") from exc
+    except NotANotice as exc:
+        session.rollback()
+        detail = f"Only a notice can be made a to-do, not a {exc.kind}"
+        raise HTTPException(status.HTTP_409_CONFLICT, detail) from exc
+    session.commit()
+    return KindOut(kind=body.kind, version=version.version)

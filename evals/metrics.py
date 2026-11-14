@@ -4,6 +4,10 @@ The matching rule is written out in evals/README.md ("Matching rule"). In
 short: an extracted item can only match a labeled item from the same email,
 their titles, without the course code, must share at least half of their
 words, and each item is used at most once, best pairs first.
+
+Kind is not part of matching. `demoted` counts the labeled deadlines and
+to-dos whose matched found item is a notice (ADR 0017): required items the
+model made less prominent. Lower is better.
 """
 
 import re
@@ -32,6 +36,7 @@ class Found:
     # The uid of an earlier found item this one changes, once matching links
     # changes (ADR 0009, Issue 6). None means "not linked".
     target: str | None = None
+    kind: str = "deadline"
 
 
 @dataclass(frozen=True)
@@ -65,6 +70,8 @@ class Scores:
     precision: Ratio
     due_accuracy: Ratio
     change_accuracy: Ratio
+    # Labeled deadlines and to-dos found as notices, over labeled ones
+    demoted: Ratio
 
 
 def words(title: str) -> frozenset[str]:
@@ -134,6 +141,14 @@ def change_correct(label: ItemLabel, item: Found, ref_of: dict[str, str]) -> boo
     return ref_of.get(item.target) == label.changes
 
 
+REQUIRED = ("deadline", "todo")
+
+
+def demoted(label: ItemLabel, item: Found) -> bool:
+    """A required item found as a notice."""
+    return label.kind in REQUIRED and item.kind == "notice"
+
+
 def score(emails: Sequence[Email]) -> Scores:
     pairs = []
     for email in emails:
@@ -147,6 +162,8 @@ def score(emails: Sequence[Email]) -> Scores:
     changes = [(label, item) for label, item in pairs if label.changes is not None]
     change_hits = sum(change_correct(label, item, ref_of) for label, item in changes)
     labeled_changes = sum(1 for e in emails for label in e.labels if label.changes is not None)
+    required = sum(1 for e in emails for label in e.labels if label.kind in REQUIRED)
+    demoted_hits = sum(demoted(label, item) for label, item in pairs)
     return Scores(
         emails=len(emails),
         labeled=labeled,
@@ -156,4 +173,5 @@ def score(emails: Sequence[Email]) -> Scores:
         precision=Ratio(matched, found),
         due_accuracy=Ratio(due_hits, matched),
         change_accuracy=Ratio(change_hits, labeled_changes),
+        demoted=Ratio(demoted_hits, required),
     )
