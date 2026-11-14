@@ -2,7 +2,7 @@
 
 An evaluation set is a list of emails, each with the labels a correct extractor would produce. The evaluation runner (ADR 0009, Issue 2) feeds each email to the pipeline and compares the result with the labels.
 
-- `synthetic.jsonl`: 56 fictional emails, safe to commit and used in CI and the demo. Every person, course, address and domain is made up, and senders use the reserved `example.*` domains.
+- `synthetic.jsonl`: 58 fictional emails, safe to commit and used in CI and the demo. Every person, course, address and domain is made up, and senders use the reserved `example.*` domains.
 - Real development and test sets live in the label table in the live database, never in this repository (ADR 0009, decisions 3 and 5). They use the same format. The owner labels them on the Dashboard's labeling page (`/label`), which checks every label with the same models before storing it.
 - `dataset.py` loads a set and checks it. A bad sample fails with its line number and field path, never the email text. The format models themselves live in `app/db/label_format.py`, so the backend can use them without shipping `evals/`.
 
@@ -101,8 +101,8 @@ Exactly what the prefilter and the extractor see of the email, and nothing else.
   - a body that names a zone `due_raw` leaves out, or evidence that gives a clock time `due_raw` leaves out.
 - An extension or a rescheduled event is a new labeled item whose `changes` points to the item it replaces. Chains are allowed: the third version points to the second.
 - Instructions inside an email (prompt injection) are labeled as data. The labels describe the email's real deadlines and ignore what the email asks the system to do.
-- Marketing deadlines ("sale ends Sunday") and receipts are not items.
-- The kind follows whether the owner personally **must** act, not whether a date appears (ADR 0017). Required actions are `deadline` (with a due time) or `todo`. Optional or general content is a `notice`: "if you want", "interested students", "optional", "you may"; event invitations, talk sign-ups, safety alerts, health advice, platform digests and broadcasts. A notice keeps its due fields when it has a date ("register by Nov 20" for an optional event), labeled by the same rules as any other item. Label what the email says, not what the prompt guesses: a broadcast that tells every student they must act ("All international students must submit the form by Nov 30") is a `deadline`, however general its sender. Marketing, receipts, sign-in codes and casual personal messages stay without items.
+- Marketing deadlines ("sale ends Sunday") and receipts are not items. A shipping or delivery update is a `notice` (see the next note), not a receipt.
+- The kind follows whether the owner personally **must** act, not whether a date appears (ADR 0017). Required actions are `deadline` (with a due time) or `todo`. Optional or general content is a `notice`: "if you want", "interested students", "optional", "you may"; event invitations, talk sign-ups, safety alerts, health advice, platform digests and broadcasts. A notice keeps its due fields when it has a date ("register by Nov 20" for an optional event), labeled by the same rules as any other item. Label what the email says, not what the prompt guesses: a broadcast that tells every student they must act ("All international students must submit the form by Nov 30") is a `deadline`, however general its sender. News about the owner's own affairs that asks for nothing is also a `notice`: a package shipped or delivered, a decision on an application (such as a rejection), a grade posted (owner, 2026-11-14). Marketing, sign-in codes, casual personal messages, and receipts or confirmations of something the owner just did (a payment, an order placed, a submission, an application received) stay without items.
 
 ## Changing the synthetic set
 
