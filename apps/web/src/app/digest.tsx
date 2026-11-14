@@ -7,7 +7,7 @@ import { localDate, localTime, reviewText } from "@/lib/format";
 import { AssumedNote } from "./assumed";
 import { apiFetch } from "@/lib/session";
 import styles from "./digest.module.css";
-import { makeTodo, setStatus } from "./items/actions";
+import { dismissNotices, makeTodo, setStatus } from "./items/actions";
 import { ProposalList } from "./proposals/list";
 import type { Proposal } from "./proposals/types";
 
@@ -45,6 +45,8 @@ type Digest = {
   expired_proposals: number;
   // Found as notices since the previous digest, in their current state (ADR 0017)
   notices: Item[];
+  // Open notices found after this digest was made; next morning's notices so far
+  later_notices: number;
 };
 
 type Account = {
@@ -145,8 +147,9 @@ export function ItemCard({ item, zone }: { item: Item; zone: string }) {
   );
 }
 
-// One line per notice: title, due date if any, link to the email, and the fix
-// for a wrong demotion. A notice the owner made a to-do says so instead.
+// One line per notice: title, due date if any, link to the email, the fix for
+// a wrong demotion, and Dismiss. A notice the owner made a to-do says so
+// instead; a dismissed one reads "Dismissed" and can be reopened.
 function NoticeLine({ item, zone }: { item: Item; zone: string }) {
   const notice = item.kind === "notice";
   return (
@@ -168,11 +171,16 @@ function NoticeLine({ item, zone }: { item: Item; zone: string }) {
       ) : item.subject ? (
         <span className={styles.muted}>{item.subject}</span>
       ) : null}
-      {notice ? (
-        <form action={makeTodo}>
-          <input type="hidden" name="id" value={item.id} />
-          <button type="submit">Make it a to-do</button>
-        </form>
+      {notice && !isClosed(item) ? (
+        <div className={styles.actions}>
+          <form action={makeTodo}>
+            <input type="hidden" name="id" value={item.id} />
+            <button type="submit">Make it a to-do</button>
+          </form>
+          <StatusButton id={item.id} status="dismissed" label="Dismiss" />
+        </div>
+      ) : notice ? (
+        <StatusButtons item={item} />
       ) : (
         <>
           <span className={styles.closed}>Now a to-do</span>
@@ -183,16 +191,35 @@ function NoticeLine({ item, zone }: { item: Item; zone: string }) {
   );
 }
 
+// Dismisses exactly the open notices on this page; one arriving later stays
+function DismissAll({ items }: { items: Item[] }) {
+  const open = items.filter((i) => i.kind === "notice" && !isClosed(i));
+  if (open.length === 0) {
+    return null;
+  }
+  return (
+    <form action={dismissNotices} className={styles.actions}>
+      {open.map((i) => (
+        <input key={i.id} type="hidden" name="id" value={i.id} />
+      ))}
+      <button type="submit">Dismiss all</button>
+    </form>
+  );
+}
+
 export function NoticeSection({
   title,
   empty,
   items,
   zone,
+  later = 0,
 }: {
   title: string;
   empty: string;
   items: Item[];
   zone: string;
+  // Open notices since this morning's digest; they wait for the next one
+  later?: number;
 }) {
   return (
     <section className={styles.section}>
@@ -202,12 +229,22 @@ export function NoticeSection({
       {items.length === 0 ? (
         <p className={styles.empty}>{empty}</p>
       ) : (
-        <ul className={styles.notices}>
-          {items.map((item) => (
-            <NoticeLine key={item.id} item={item} zone={zone} />
-          ))}
-        </ul>
+        <>
+          <ul className={styles.notices}>
+            {items.map((item) => (
+              <NoticeLine key={item.id} item={item} zone={zone} />
+            ))}
+          </ul>
+          <DismissAll items={items} />
+        </>
       )}
+      {later > 0 ? (
+        <p className={styles.meta}>
+          <Link href="/past">
+            {later} new {later === 1 ? "notice" : "notices"} since this morning →
+          </Link>
+        </p>
+      ) : null}
     </section>
   );
 }
@@ -302,6 +339,7 @@ function DigestView({ digest }: { digest: Digest | null | "error" }) {
         empty="No notices."
         items={digest.notices}
         zone={zone}
+        later={digest.later_notices}
       />
     </>
   );

@@ -41,8 +41,8 @@ export default function PastPage() {
       <p className={styles.note}>
         Items whose due time passed more than two days ago, and items needing review with no due
         time whose email is over 14 days old. They left the digest but keep their status: mark
-        them done or dismiss them here. Notices, newest first, each shown once in a morning
-        digest; make one a to-do if it needs your action.
+        them done or dismiss them here. Open notices, newest first, each shown once in a morning
+        digest; make one a to-do if it needs your action, or dismiss it to clear it from here.
       </p>
       <Suspense fallback={<p>Loading items…</p>}>
         <PastItems />

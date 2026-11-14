@@ -136,6 +136,14 @@ def notice_ids(session: Session, since: datetime | None, until: datetime) -> lis
     return list(session.execute(query).scalars())
 
 
+def later_notices(session: Session, after: datetime) -> int:
+    """Open notices created after `after`: the next morning's notices so far."""
+    query = select(func.count(Item.id)).where(
+        Item.kind == NOTICE, Item.status == "open", Item.created_at > after
+    )
+    return session.execute(query).scalar_one()
+
+
 def expired_between(session: Session, since: datetime | None, until: datetime) -> int:
     """Proposals that expired unanswered after `since`, up to `until`."""
     query = select(func.count()).where(
@@ -244,6 +252,8 @@ class DigestView:
     expired_proposals: int
     # Items found as notices since the previous digest, oldest first (ADR 0017)
     notices: list[ItemView]
+    # Open notices found after this digest was made; they wait for the next one
+    later_notices: int
 
 
 def newest(condition: Any) -> Any:
@@ -375,6 +385,7 @@ def read_digest(session: Session, digest: Digest, now: datetime) -> DigestView:
         overdue,
         expired,
         notices,
+        later_notices(session, digest.generated_at),
     )
 
 

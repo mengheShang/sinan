@@ -1,4 +1,5 @@
-"""Notices end to end (ADR 0017): extraction, digest, Past view, "Make it a to-do".
+"""Notices end to end (ADR 0017): extraction, digest, Past view, "Make it a to-do",
+Dismiss and Dismiss all.
 
 Synthetic mail and a FakeExtractor only. Every course, person and address is
 fictional.
@@ -21,6 +22,7 @@ from app.config import Settings, get_settings
 from app.db.digest import latest, list_items, make_digest, past_items, read_digest
 from app.db.extract import extract_pending
 from app.db.item_kind import NotANotice, make_todo
+from app.db.item_status import set_status
 from app.db.models import (
     Account,
     AuditEvent,
@@ -31,6 +33,7 @@ from app.db.models import (
     Message,
     Proposal,
 )
+from app.db.notice_dismiss import dismiss_all
 from app.extraction.prefilter import Rules
 from app.extraction.prompt import PROMPT_HASH, PROMPT_VERSION
 from app.providers.fakes import FakeExtractor
@@ -322,6 +325,77 @@ def test_a_made_todo_stays_in_its_digest_and_joins_the_lists(session: Session) -
     assert notice_titles(session, tomorrow, MORNING + DAY) == []
 
 
+# ---- Dismiss ----
+
+
+def versions_of(session: Session, item_id: uuid.UUID) -> list[ItemVersion]:
+    query = sa.select(ItemVersion).where(ItemVersion.item_id == item_id)
+    return list(session.execute(query.order_by(ItemVersion.version)).scalars())
+
+
+def test_dismiss_appends_a_user_version_and_leaves_past(session: Session) -> None:
+    item_id = seed(session, "Flu shots", MORNING - DAY)
+    made = digest_at(session, MORNING)
+    set_status(session, item_id, "dismissed")
+    session.commit()
+    last = versions_of(session, item_id)[-1]
+    assert (last.version, last.actor, last.change_type) == (2, "user", "status")
+    assert (last.before, last.after) == ({"status": "open"}, {"status": "dismissed"})
+    # Still in its digest, now dismissed; gone from the Past page
+    (view,) = read_digest(session, made, MORNING).notices
+    assert view.status == "dismissed"
+    assert past_items(session, MORNING).notices == []
+
+
+def test_dismiss_all_touches_only_open_notices_sent(session: Session) -> None:
+    shown = seed(session, "Flu shots", MORNING - DAY)
+    other = seed(session, "Storm alert", MORNING - DAY)
+    task = seed(session, "Homework 3", MORNING - DAY, kind="deadline", due_at=ESSAY_DUE)
+    closed = seed(session, "Talk", MORNING - DAY)
+    set_status(session, closed, "dismissed")
+    session.commit()
+    sent = [shown, shown, task, closed, uuid.uuid4()]
+    done = dismiss_all(session, sent)
+    session.commit()
+    assert done == [shown]
+    statuses = {i: session.get_one(Item, i).status for i in (shown, other, task, closed)}
+    assert statuses == {shown: "dismissed", other: "open", task: "open", closed: "dismissed"}
+    assert len(versions_of(session, shown)) == 2
+    assert len(versions_of(session, task)) == 1
+    assert len(versions_of(session, closed)) == 2
+    query = sa.select(AuditEvent).where(AuditEvent.event_type == "notice.dismiss_all")
+    event = session.execute(query).scalar_one()
+    assert event.actor == "user"
+    assert event.data == {"sent": 4, "dismissed": 1, "ids": [str(shown)]}
+
+
+def test_dismiss_all_gives_each_notice_its_own_version(session: Session) -> None:
+    ids = [seed(session, f"Notice {n}", MORNING - DAY) for n in range(3)]
+    done = dismiss_all(session, ids)
+    session.commit()
+    assert sorted(done) == sorted(ids)
+    for item_id in ids:
+        last = versions_of(session, item_id)[-1]
+        assert (last.version, last.actor, last.after) == (2, "user", {"status": "dismissed"})
+    assert dismiss_all(session, ids) == []
+    assert dismiss_all(session, []) == []
+
+
+def test_later_notices_counts_open_notices_since_the_digest(session: Session) -> None:
+    seed(session, "Before", MORNING - DAY)
+    made = digest_at(session, MORNING)
+    assert read_digest(session, made, MORNING).later_notices == 0
+    seed(session, "After one", MORNING + timedelta(hours=2))
+    gone = seed(session, "After two", MORNING + timedelta(hours=3))
+    seed(session, "Homework 3", MORNING + timedelta(hours=4), kind="deadline")
+    task = seed(session, "After three", MORNING + timedelta(hours=5))
+    set_status(session, gone, "dismissed")
+    make_todo(session, task)
+    session.commit()
+    now = MORNING + timedelta(hours=6)
+    assert read_digest(session, made, now).later_notices == 1
+
+
 # ---- API ----
 
 
@@ -372,3 +446,44 @@ def test_api_make_todo_needs_login(client: TestClient, session: Session) -> None
     item_id = seed(session, "Resume workshop", MORNING - DAY)
     client.cookies.clear()
     assert client.post(f"/items/{item_id}/kind", json={"kind": "todo"}).status_code == 401
+
+
+def test_api_dismiss_one_notice(client: TestClient, session: Session) -> None:
+    item_id = seed(session, "Flu shots", MORNING - DAY)
+    digest_at(session, MORNING)
+    resp = client.post(f"/items/{item_id}/status", json={"status": "dismissed"})
+    assert resp.status_code == 200
+    (notice,) = client.get("/digest").json()["notices"]
+    assert notice["status"] == "dismissed"
+    assert client.get("/items/past").json()["notices"] == []
+
+
+def test_api_dismiss_all(client: TestClient, session: Session) -> None:
+    shown = [seed(session, f"Notice {n}", MORNING - DAY) for n in range(2)]
+    later = seed(session, "Arrived after loading", MORNING - DAY)
+    task = seed(session, "Homework 3", MORNING - DAY, kind="deadline", due_at=ESSAY_DUE)
+    ids = [str(i) for i in [*shown, task]]
+    resp = client.post("/notices/dismiss", json={"ids": ids})
+    assert resp.status_code == 200
+    assert resp.json() == {"dismissed": 2}
+    assert client.post("/notices/dismiss", json={"ids": ids}).json() == {"dismissed": 0}
+    assert session.get_one(Item, later).status == "open"
+    assert session.get_one(Item, task).status == "open"
+    assert client.post("/notices/dismiss", json={"ids": ["not-an-id"]}).status_code == 422
+    too_many = [str(uuid.uuid4()) for _ in range(501)]
+    assert client.post("/notices/dismiss", json={"ids": too_many}).status_code == 422
+
+
+def test_api_digest_counts_later_notices(client: TestClient, session: Session) -> None:
+    digest_at(session, MORNING)
+    assert client.get("/digest").json()["later_notices"] == 0
+    seed(session, "Storm alert", MORNING + timedelta(minutes=30))
+    assert client.get("/digest").json()["later_notices"] == 1
+
+
+def test_api_dismiss_all_needs_login(client: TestClient, session: Session) -> None:
+    item_id = seed(session, "Flu shots", MORNING - DAY)
+    client.cookies.clear()
+    resp = client.post("/notices/dismiss", json={"ids": [str(item_id)]})
+    assert resp.status_code == 401
+    assert session.get_one(Item, item_id).status == "open"

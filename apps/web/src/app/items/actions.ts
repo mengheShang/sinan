@@ -48,3 +48,26 @@ export async function makeTodo(form: FormData): Promise<void> {
   }
   refresh();
 }
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Dismisses the notices the page showed, by their IDs (ADR 0017); local database only.
+// The API skips any ID that is no longer an open notice.
+export async function dismissNotices(form: FormData): Promise<void> {
+  const ids = form.getAll("id").map(String);
+  if (ids.length === 0 || !ids.every((id) => UUID.test(id))) {
+    throw new Error("Bad notice list");
+  }
+  const resp = await apiFetch("/notices/dismiss", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ids }),
+  });
+  if (resp.status === 401) {
+    redirect("/login");
+  }
+  if (!resp.ok) {
+    throw new Error(`Dismiss all failed (${resp.status})`);
+  }
+  refresh();
+}

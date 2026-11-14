@@ -1,13 +1,13 @@
 # ADR 0017: Optional and general mail becomes a morning notice
 
-- Status: Proposed
-- Date: 2026-11-13
+- Status: Accepted (2026-11-14)
+- Date: 2026-11-13, amended 2026-11-14 (owner review of PR #72)
 - Decider: Menghe
 - Amends: ADR 0007 (LLM extraction), ADR 0008 (daily digest), ADR 0014 (change matching), ADR 0015 (past and stale items)
 
 ## Context
 
-In live use, all 22 open items were to-dos with no deadline, and most came from school broadcast mail: storm preparation, a crime alert, a leave-of-absence process, a flu shot reminder, a forum daily digest. None of them was a task for the owner. Prompt v1 offered only `deadline` and `todo`, so the model filed general advice and announcements as to-dos. Issue #67 records the owner's decisions of 2026-11-13. This ADR writes them down, together with how they are built.
+In live use, all 22 open items were to-dos with no deadline, and most came from school broadcast mail: storm preparation, a crime alert, a leave-of-absence process, a flu shot reminder, a forum daily digest. None of them was a task for the owner. Prompt v1 offered only `deadline` and `todo`, so the model filed general advice and announcements as to-dos. Issue #67 records the owner's decisions of 2026-11-13, and the owner's review of PR #72 on 2026-11-14 adds three more. This ADR writes them down, together with how they are built.
 
 ## Decisions (owner, Issue #67)
 
@@ -21,6 +21,16 @@ In live use, all 22 open items were to-dos with no deadline, and most came from 
    - the one-click fix of decision 3;
    - measurement: the evaluation reports "required items demoted to notice", and the CI gate fails when it rises by more than the core-metric threshold. The injection set gains cases that try to demote a real deadline. They must still end up visible, as a notice at worst, never dropped.
 5. **The model gains no power.** Choosing `notice` can only make an item less prominent. The model still has no tools and returns JSON only (CLAUDE.md rule 3).
+
+## Decisions (owner, PR #72 review, 2026-11-14)
+
+Notices never expire, so without a way to clear them the Past page's notice list would only grow.
+
+6. **Dismiss one notice.** Each notice line, on the home page and on the Past page, has a Dismiss button. It sets the status to `dismissed` and appends an `item_versions` row with actor `user`, through the same path as any status change. On the home page a dismissed line stays in its digest and reads "Dismissed"; on the Past page it disappears.
+7. **Dismiss all.** The Notices section on both pages has a Dismiss all button. It dismisses only the notices shown on the page: the form sends their IDs, so a notice that arrives between loading the page and clicking stays undismissed. IDs that are not open notices are skipped, and the response says how many were dismissed.
+8. **New notices since the morning digest.** Under the home page's Notices section, one line, "N new notices since this morning →", links to the Past page. N counts open notices created after the latest digest was generated; the line is hidden when N is 0. There is no evening digest and no real-time notice: each notice still appears in exactly one morning digest.
+
+The Past page lists every open, that is undismissed, notice.
 
 **Out of scope:** "Mark read" on a notice that also marks the email read in Gmail. That writes to Gmail, so it belongs to M3: it needs the write scope, the Executor (the only holder of the write token), a one-time approval or a standing grant, an idempotency key, and the `safe_to_auto_read` labels (ADR 0009, decision 1). Nothing here writes outside the local database.
 
@@ -54,7 +64,8 @@ Migration 0007 changes one thing: the CHECK on `items.kind` allows `notice`. Dow
 - **Sections, overdue and Past.** `new`, `due_soon` and `needs_review` select only deadlines and to-dos. `list_items`, used by the to-do lists and the overdue and past groups, skips notices. A notice has no phase (ADR 0015): it is never overdue, past or stale.
 - **Which digest shows a notice is computed on read, not stored.** A digest's notices are the items found as notices with `created_at` after the previous digest's `generated_at` and no later than its own. Those windows do not overlap and leave no gap, so each notice is in exactly one digest. The digest's audit event records the count when it is made.
 - **"Found as a notice"** means the item is a notice now, or one of its versions has `before.kind = "notice"`, the version that "Make it a to-do" appends. So a notice the owner converted stays in its digest's list, shown in its current state.
-- **Past page.** `GET /items/past` adds every open notice, newest first, including any found since the latest digest.
+- **Past page.** `GET /items/past` adds every open notice, newest first, including any found since the latest digest. A dismissed notice is not open, so it leaves this list.
+- **Later notices.** `GET /digest` returns `later_notices`: the open notices with `created_at` after the digest's `generated_at`. They are the next morning's notices so far; the Dashboard shows the count and links to the Past page, where they are already listed.
 
 Why computed and not stored, as for overdue in ADR 0015: a stored section would need a new value in the `digest_items.section` CHECK, which means a second migration change, and the created-at windows already give the "exactly one digest" rule.
 
@@ -63,6 +74,12 @@ Why computed and not stored, as for overdue in ADR 0015: a stored section would 
 `POST /items/{id}/kind` with `{"kind": "todo"}` calls `app/db/item_kind.py`. In one transaction it locks the item, refuses anything that is not a notice (409, which also covers a double click), sets `kind = 'todo'`, appends a version with `change_type: "update"`, actor `user`, `before: {"kind": "notice"}` and `after: {"kind": "todo"}`, and writes an `item.kind` audit event with IDs and kinds only. The due time, title and status do not change. From then on the item behaves like any to-do: it shows in "Due in the next 7 days" when its due time is near, can be marked done, and can become the target of a deadline change.
 
 The only allowed move is `notice` to `todo`. The API accepts no other value, so the Dashboard cannot demote, and the model never calls this endpoint.
+
+### Dismiss and Dismiss all
+
+- **Dismiss** is the existing `POST /items/{id}/status` with `{"status": "dismissed"}` (`app/db/item_status.py`). A notice moves like any item: `open` to `dismissed`, and back with Reopen. Each move appends a `status` version with actor `user` and an `item.status` audit event.
+- **Dismiss all** is `POST /notices/dismiss` with `{"ids": [...]}`, at most 500, and calls `app/db/notice_dismiss.py`. In one transaction it locks, in ID order, the rows among those IDs that are notices with status `open`, and dismisses each through `set_status`, so each gets its own version row and audit event. Every other ID (unknown, a to-do, already dismissed, a duplicate) is skipped. One more audit event, `notice.dismiss_all`, records the number of distinct IDs sent, the number dismissed and their IDs, nothing else. The response is `{"dismissed": n}`. Repeating the click dismisses 0.
+- Both write only to the local database. Nothing reaches Gmail, and the model never calls either endpoint.
 
 ### Evaluation
 
@@ -74,7 +91,8 @@ The only allowed move is `notice` to `todo`. The API accepts no other value, so 
 ## Consequences
 
 - **A wrong demotion costs prominence, not visibility.** A real deadline the model calls a notice appears once, as one line in the morning, with its date. It is never in "Due in the next 7 days" and never overdue until the owner makes it a to-do. The metric and the gate watch how often that happens on the synthetic set; the real dev and test sets measure it once labeled with `notice`.
-- **Notices are not reminded.** A notice with a date in three weeks is shown once and then only on the Past page.
+- **Notices are not reminded.** A notice with a date in three weeks is shown once and then only on the Past page, until the owner dismisses it.
+- **Dismiss all can hide a wrong demotion.** A required item demoted to a notice and dismissed in bulk leaves every list. It stays in its digest as "Dismissed", and Reopen brings it back.
 - **Validation cannot force a date.** A reply can still give a notice no `due_raw`, and an email can still talk the model out of an item entirely. Neither is caught deterministically, as before (evals/README.md, "What validation does not stop"); recall measures the second.
 - **Bulk-header broadcasts still never reach the model.** The prefilter skips mail with bulk headers unless allowed (ADR 0006). Two relabeled synthetic broadcasts are skipped that way and count as missed notices.
 - **Recorded replies under v2 are hand-written.** CI's replies for prompt v2 are fictional until the owner re-records the synthetic set with a live run. The baseline then moves in its own commit.
