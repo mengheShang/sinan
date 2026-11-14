@@ -1,5 +1,5 @@
 {
-  "prompt_version": "v2",
+  "prompt_version": "v3",
   "replies": {
     "syn-001": {
       "items": [
@@ -603,6 +603,30 @@
           "course": "CS 000",
           "title": "CS 000 forum daily digest",
           "evidence": "There are 4 new posts in CS 000 since yesterday, including a pinned post about Homework 4.",
+          "due_raw": null,
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-057": {
+      "items": [
+        {
+          "kind": "notice",
+          "course": null,
+          "title": "Notebooks order shipped",
+          "evidence": "Your order of 2 notebooks has shipped and should arrive on Thursday.",
+          "due_raw": null,
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-058": {
+      "items": [
+        {
+          "kind": "notice",
+          "course": null,
+          "title": "Software Engineer Intern application declined",
+          "evidence": "we will not be moving forward with your application at this time.",
           "due_raw": null,
           "change_type": "create"
         }

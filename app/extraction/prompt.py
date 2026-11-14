@@ -8,13 +8,15 @@ Before an email reaches the model, quoted history is cut and only the subject,
 sender and date are kept from the headers (M0 item 3).
 
 v2 adds the "notice" kind for optional and general mail (ADR 0017).
+v3 adds news about the student's own affairs (shipping, application
+decisions, grades) to notices, and names the confirmations to skip.
 """
 
 import hashlib
 import re
 from datetime import datetime
 
-PROMPT_VERSION = "v2"
+PROMPT_VERSION = "v3"
 
 PROMPT = """You extract deadlines, to-dos and notices from one email for a university
 student.
@@ -33,10 +35,14 @@ whether a date appears:
   talk sign-ups, safety alerts, health advice, platform digests and
   broadcasts. A notice can have a date, such as "register by Nov 20" for an
   optional event, and is still a notice.
+- News about the student's own affairs that asks for nothing is also a
+  notice: a package shipped or delivered, a decision on an application
+  (such as a rejection), or a grade posted.
 - When you are unsure whether the student must act, treat it as required.
 
-Skip marketing and sales, receipts, sign-in codes, and casual personal
-messages that ask for nothing.
+Skip marketing and sales, receipts and confirmations of something the student
+just did (a payment, an order placed, a submission or an application
+received), sign-in codes, and casual personal messages that ask for nothing.
 
 For each item:
 - kind: "notice" for a notice. For a required action, "deadline" when the
