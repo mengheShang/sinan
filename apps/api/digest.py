@@ -1,8 +1,9 @@
 """Digest and item endpoints for the Dashboard.
 
 All sit behind the login like every other route. The Worker makes digests;
-the only writes here are the owner changing an item's status or making a
-notice a to-do (ADR 0017), which touch the local database alone.
+the only writes here are the owner changing an item's status, making a
+notice a to-do or dismissing the notices shown (ADR 0017), which touch the
+local database alone.
 Proposed changes are in apps/api/proposals.py.
 """
 
@@ -12,12 +13,13 @@ from typing import Annotated, Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.config import Settings, get_settings
 from app.db.digest import ItemView, latest, list_items, past_items, read_digest
 from app.db.item_kind import NotANotice, make_todo
 from app.db.item_status import BadMove, UnknownItem, set_status
+from app.db.notice_dismiss import MAX_IDS, dismiss_all
 from apps.api.clock import ClockDep
 from apps.api.oauth import SessionDep
 
@@ -66,6 +68,8 @@ class DigestOut(BaseModel):
     # Found as notices since the previous digest, in their current state;
     # computed at read time, never stored (ADR 0017)
     notices: list[ItemOut]
+    # Open notices found after this digest was made; they wait for the next one
+    later_notices: int
 
 
 def gmail_url(view: ItemView, live: bool) -> str | None:
@@ -122,6 +126,7 @@ def digest(session: SessionDep, settings: SettingsDep, clock: ClockDep) -> Diges
         needs_review=sections["needs_review"],
         expired_proposals=view.expired_proposals,
         notices=[item_out(v, live) for v in view.notices],
+        later_notices=view.later_notices,
     )
 
 
@@ -206,3 +211,20 @@ def change_kind(item_id: uuid.UUID, body: KindBody, session: SessionDep) -> Kind
         raise HTTPException(status.HTTP_409_CONFLICT, detail) from exc
     session.commit()
     return KindOut(kind=body.kind, version=version.version)
+
+
+class DismissBody(BaseModel):
+    # The notices shown on the page; nothing else is dismissed
+    ids: Annotated[list[uuid.UUID], Field(max_length=MAX_IDS)]
+
+
+class DismissOut(BaseModel):
+    dismissed: int
+
+
+@router.post("/notices/dismiss")
+def dismiss_notices(body: DismissBody, session: SessionDep) -> DismissOut:
+    """Dismiss the open notices among the IDs sent; skip every other ID (ADR 0017)."""
+    done = dismiss_all(session, body.ids)
+    session.commit()
+    return DismissOut(dismissed=len(done))
