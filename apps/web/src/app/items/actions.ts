@@ -27,3 +27,24 @@ export async function setStatus(form: FormData): Promise<void> {
   }
   refresh();
 }
+
+// Makes a notice a to-do (ADR 0017); appends an item version, local database only
+export async function makeTodo(form: FormData): Promise<void> {
+  const id = String(form.get("id") ?? "");
+  if (!id) {
+    throw new Error("Bad kind change");
+  }
+  const resp = await apiFetch(`/items/${encodeURIComponent(id)}/kind`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ kind: "todo" }),
+  });
+  if (resp.status === 401) {
+    redirect("/login");
+  }
+  // 409 means it is no longer a notice, e.g. a double click; the refresh shows its real state
+  if (!resp.ok && resp.status !== 409) {
+    throw new Error(`Kind change failed (${resp.status})`);
+  }
+  refresh();
+}

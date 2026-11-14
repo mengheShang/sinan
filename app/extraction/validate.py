@@ -17,6 +17,13 @@ Nothing the model says is trusted on its own (ADR 0007):
   then matches it to the item it changes (app/items/changes.py): one match
   becomes a proposal instead of an item, and only an unmatched or ambiguous
   change is saved as an item.
+- A "notice" (ADR 0017) keeps its parsed due time but never needs review:
+  a due time that does not parse is left out, and the item stays `open`
+  and shows its `due_raw` as written. A `due_raw` that is not inside the
+  evidence is dropped instead, so a notice never shows a date the email
+  does not tie to it. A notice is never a change, so it is never matched
+  to another item. Choosing "notice" only makes an item less
+  prominent; it gives the model no other power.
 """
 
 import json
@@ -125,13 +132,34 @@ def due_of(item: ExtractedItem, sent_at: datetime, home: tzinfo, body: str) -> D
     return nothing_left_out(parsed, item.evidence, body)
 
 
+def review_of(item: ExtractedItem, due: DueParse) -> str | None:
+    """Why the item needs review, or None. A notice never needs review."""
+    if item.kind == "notice":
+        return None
+    if due.reason is not None:
+        return due.reason
+    if item.change_type == "update":
+        return "unmatched_update"
+    return None
+
+
+def is_change(item: ValidItem) -> bool:
+    """An update with a parsed time; any other update stays a review item.
+
+    A notice is never a change, so it never becomes a proposal.
+    """
+    if item.kind == "notice":
+        return False
+    return item.change_type == "update" and item.due_at is not None
+
+
 def build(item: ExtractedItem, sent_at: datetime, home: tzinfo, body: str) -> ValidItem:
     due = due_of(item, sent_at, home, body)
-    review = due.reason
-    if review is None and item.change_type == "update":
-        review = "unmatched_update"
+    review = review_of(item, due)
     status = "open" if review is None else "needs_review"
     due_raw = blank_to_none(item.due_raw)
+    if item.kind == "notice" and due.reason == "due_not_in_evidence":
+        due_raw = None
     return ValidItem(
         kind=item.kind,
         course=blank_to_none(item.course),

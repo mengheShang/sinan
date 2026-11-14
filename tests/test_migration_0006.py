@@ -40,9 +40,15 @@ def add_version(engine: Engine, actor: str) -> None:
         c.execute(sa.insert(ItemVersion).values(**values))
 
 
-def test_0006_is_head_after_0005(db_url: str) -> None:
+def head(db_url: str) -> str:
     script = ScriptDirectory.from_config(alembic_config(db_url))
-    assert script.get_current_head() == "0006"
+    found = script.get_current_head()
+    assert found is not None
+    return found
+
+
+def test_0006_follows_0005(db_url: str) -> None:
+    script = ScriptDirectory.from_config(alembic_config(db_url))
     assert script.get_revision("0006").down_revision == "0005"
 
 
@@ -57,8 +63,8 @@ def test_downgrade_refuses_while_system_rows_exist(engine: Engine, db_url: str) 
     cfg = alembic_config(db_url)
     with pytest.raises(RuntimeError, match="actor 'system'.*append-only"):
         command.downgrade(cfg, "0005")
-    # Nothing changed: still at 0006, and system rows are still allowed
-    assert current(engine) == "0006"
+    # Nothing changed: still at head, and system rows are still allowed
+    assert current(engine) == head(db_url)
     add_version(engine, "system")
 
 
@@ -88,7 +94,7 @@ def test_downgrade_then_upgrade_without_system_rows(clean: str) -> None:
         with pytest.raises(sa.exc.IntegrityError):
             add_version(engine, "system")
         command.upgrade(cfg, "head")
-        assert current(engine) == "0006"
+        assert current(engine) == head(clean)
         add_version(engine, "system")
     finally:
         engine.dispose()

@@ -1,8 +1,9 @@
 {
   "synthetic": {
-    "item_recall": 89.74,
-    "item_precision": 97.22,
-    "due_accuracy": 97.14,
-    "change_accuracy": 0.0
+    "item_recall": 87.76,
+    "item_precision": 97.73,
+    "due_accuracy": 97.67,
+    "change_accuracy": 100.0,
+    "demoted_to_notice": 2.56
   }
 }

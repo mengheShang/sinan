@@ -15,7 +15,8 @@ For each message without a run for the current prompt version:
 4. An item the model marks as an update, with a parsed due time, is matched
    to the item it changes (app/items/changes.py). One match becomes a
    pending proposal instead of a new item; several matches or none save the
-   change as a new item marked needs_review.
+   change as a new item marked needs_review. A notice is never matched
+   (ADR 0017).
 
 One run row per message and prompt version, so a rerun skips what is done.
 A service error (network, rate limit, bad key) saves nothing and ends the
@@ -36,7 +37,7 @@ from app.db.models import Account, AuditEvent, ExtractionRun, Item, ItemVersion,
 from app.extraction.deadlines import HOME
 from app.extraction.prefilter import Envelope, Rules, decide
 from app.extraction.prompt import PROMPT, PROMPT_HASH, PROMPT_VERSION, prepare
-from app.extraction.validate import Checked, ValidItem, check
+from app.extraction.validate import Checked, ValidItem, check, is_change
 from app.items.changes import Source, propose
 from app.providers.llm import Extractor, ExtractorError
 
@@ -157,11 +158,6 @@ class Context:
     now: datetime
     ttl_days: int
     home: tzinfo = HOME
-
-
-def is_change(item: ValidItem) -> bool:
-    """An update with a parsed time; any other update stays a review item."""
-    return item.change_type == "update" and item.due_at is not None
 
 
 def save_change(

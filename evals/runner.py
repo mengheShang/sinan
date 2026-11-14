@@ -15,7 +15,7 @@ from typing import Any
 
 from app.extraction.prefilter import Envelope, Rules, decide
 from app.extraction.prompt import PROMPT_VERSION
-from app.extraction.validate import Checked, ValidItem, check
+from app.extraction.validate import Checked, ValidItem, check, is_change
 from app.items.matching import Known, match
 from evals.dataset import Sample
 from evals.metrics import Email, Found, Ratio, Scores, score
@@ -82,7 +82,7 @@ class Linker:
 
     def link(self, uid: str, sample_id: str, item: ValidItem) -> str | None:
         """The uid this item changes, or None after adding it as a new item."""
-        if item.change_type == "update" and item.due_at is not None:
+        if is_change(item):
             earlier = [k for k in self.pool if self.origin[k.key] != sample_id]
             found = match(item.course, item.title, earlier)
             if found.target is not None:
@@ -105,7 +105,8 @@ def found_of(outcome: Outcome, linker: Linker | None = None) -> list[Found]:
     for n, item in enumerate(items):
         uid = f"{sample_id}/{n}"
         target = linker.link(uid, sample_id, item)
-        found.append(Found(uid, item.course, item.title, item.due_at, item.status, target))
+        kept = Found(uid, item.course, item.title, item.due_at, item.status, target, item.kind)
+        found.append(kept)
     return found
 
 
@@ -127,6 +128,7 @@ def scores_data(scores: Scores) -> dict[str, Any]:
         "item_precision": ratio_data(scores.precision),
         "due_accuracy": ratio_data(scores.due_accuracy),
         "change_accuracy": ratio_data(scores.change_accuracy),
+        "demoted_to_notice": ratio_data(scores.demoted),
     }
 
 

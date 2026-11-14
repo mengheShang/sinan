@@ -7,13 +7,13 @@ import { localDate, localTime, reviewText } from "@/lib/format";
 import { AssumedNote } from "./assumed";
 import { apiFetch } from "@/lib/session";
 import styles from "./digest.module.css";
-import { setStatus } from "./items/actions";
+import { makeTodo, setStatus } from "./items/actions";
 import { ProposalList } from "./proposals/list";
 import type { Proposal } from "./proposals/types";
 
 export type Item = {
   id: string;
-  kind: "deadline" | "todo";
+  kind: "deadline" | "todo" | "notice";
   course: string | null;
   title: string;
   due_raw: string | null;
@@ -43,6 +43,8 @@ type Digest = {
   due_soon: Item[];
   needs_review: Item[];
   expired_proposals: number;
+  // Found as notices since the previous digest, in their current state (ADR 0017)
+  notices: Item[];
 };
 
 type Account = {
@@ -143,6 +145,73 @@ export function ItemCard({ item, zone }: { item: Item; zone: string }) {
   );
 }
 
+// One line per notice: title, due date if any, link to the email, and the fix
+// for a wrong demotion. A notice the owner made a to-do says so instead.
+function NoticeLine({ item, zone }: { item: Item; zone: string }) {
+  const notice = item.kind === "notice";
+  return (
+    <li className={styles.notice}>
+      {item.course ? <span className={styles.course}>{item.course}</span> : null}
+      <strong>{item.title}</strong>
+      {item.due_at ? (
+        <span>
+          {localTime(item.due_at, zone)}
+          <AssumedNote due={item} />
+        </span>
+      ) : item.due_raw ? (
+        <span>“{item.due_raw}”</span>
+      ) : null}
+      {item.gmail_url ? (
+        <a href={item.gmail_url} target="_blank" rel="noreferrer noopener">
+          Open in Gmail
+        </a>
+      ) : item.subject ? (
+        <span className={styles.muted}>{item.subject}</span>
+      ) : null}
+      {notice ? (
+        <form action={makeTodo}>
+          <input type="hidden" name="id" value={item.id} />
+          <button type="submit">Make it a to-do</button>
+        </form>
+      ) : (
+        <>
+          <span className={styles.closed}>Now a to-do</span>
+          <StatusButtons item={item} />
+        </>
+      )}
+    </li>
+  );
+}
+
+export function NoticeSection({
+  title,
+  empty,
+  items,
+  zone,
+}: {
+  title: string;
+  empty: string;
+  items: Item[];
+  zone: string;
+}) {
+  return (
+    <section className={styles.section}>
+      <h2>
+        {title} <span className={styles.count}>{items.length}</span>
+      </h2>
+      {items.length === 0 ? (
+        <p className={styles.empty}>{empty}</p>
+      ) : (
+        <ul className={styles.notices}>
+          {items.map((item) => (
+            <NoticeLine key={item.id} item={item} zone={zone} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 export function Section({
   title,
   empty,
@@ -200,7 +269,8 @@ function DigestView({ digest }: { digest: Digest | null | "error" }) {
           </>
         ) : null}
         {" "}
-        · items past due over two days are on the <Link href="/past">Past items</Link> page
+        · items past due over two days, and earlier notices, are on the{" "}
+        <Link href="/past">Past items</Link> page
         {closed.size > 0 ? (
           <>
             {" "}
@@ -225,6 +295,12 @@ function DigestView({ digest }: { digest: Digest | null | "error" }) {
         title={digest.since ? "New since the last digest" : "New"}
         empty="No new items."
         items={active(digest.new)}
+        zone={zone}
+      />
+      <NoticeSection
+        title={digest.since ? "Notices since the last digest" : "Notices"}
+        empty="No notices."
+        items={digest.notices}
         zone={zone}
       />
     </>

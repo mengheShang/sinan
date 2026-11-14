@@ -26,6 +26,15 @@ overdue, past or stale leave their sections, and the "overdue" group is
 computed from all active items at that moment. It is never stored, so a
 digest's rows never change after it is made. Past and stale items are
 listed by `past_items` for the Past view.
+
+Notices (ADR 0017) are optional or general mail. They never enter a
+section, the overdue group or the Past view's past and stale lists, and
+have no phase: they never become overdue, past or stale. A digest's
+"notices" are computed on read, like overdue: the items found as notices
+that were created after the previous digest, up to when this one was made.
+These windows do not overlap, so each notice is in exactly one digest. A
+notice the owner has since made a to-do stays listed there, in its current
+state. `past_items` lists every open notice for the Past view.
 """
 
 import uuid
@@ -34,7 +43,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, get_args
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Row, Select, func, select
+from sqlalchemy import ColumnElement, Row, Select, func, or_, select
 from sqlalchemy.dialects.postgresql import distinct_on, insert
 from sqlalchemy.orm import Session
 
@@ -54,6 +63,7 @@ from app.items.timing import Phase, is_held, phase
 DUE_WINDOW = timedelta(days=7)
 ACTIVE = ("open", "needs_review")
 SECTIONS = ("new", "due_soon", "needs_review")
+NOTICE = "notice"
 
 
 def local_date(now: datetime, zone: ZoneInfo) -> date:
@@ -74,15 +84,18 @@ def section_ids(
     session: Session, now: datetime, since: datetime | None
 ) -> dict[str, list[uuid.UUID]]:
     active = Item.status.in_(ACTIVE)
-    new_q = select(Item.id).where(active)
+    # Notices are listed apart and never enter a section (ADR 0017)
+    tasks = Item.kind != NOTICE
+    new_q = select(Item.id).where(active, tasks)
     if since is not None:
         new_q = new_q.where(Item.created_at > since)
     soon_q = select(Item.id).where(
         active,
+        tasks,
         Item.due_at >= now,
         Item.due_at < now + DUE_WINDOW,
     )
-    review_q = select(Item.id).where(Item.status == "needs_review")
+    review_q = select(Item.id).where(Item.status == "needs_review", tasks)
     return {
         "new": list(session.execute(new_q).scalars()),
         "due_soon": list(session.execute(soon_q).scalars()),
@@ -107,6 +120,20 @@ def pending_items(session: Session, now: datetime) -> set[uuid.UUID]:
         .where(Proposal.base_version == current.c.version)
     )
     return set(session.execute(query).scalars())
+
+
+def was_notice() -> ColumnElement[bool]:
+    """SQL for an item that is a notice, or was one until the owner made it a to-do."""
+    changed = select(ItemVersion.item_id).where(ItemVersion.before["kind"].astext == NOTICE)
+    return or_(Item.kind == NOTICE, Item.id.in_(changed))
+
+
+def notice_ids(session: Session, since: datetime | None, until: datetime) -> list[uuid.UUID]:
+    """Items found as notices after `since`, up to `until`, in any status."""
+    query = select(Item.id).where(was_notice(), Item.created_at <= until)
+    if since is not None:
+        query = query.where(Item.created_at > since)
+    return list(session.execute(query).scalars())
 
 
 def expired_between(session: Session, since: datetime | None, until: datetime) -> int:
@@ -144,6 +171,7 @@ def make_digest(
         for item_id in ids:
             session.add(DigestItem(digest_id=digest_id, section=section, item_id=item_id))
     counts = {name: len(ids) for name, ids in sections.items()}
+    counts["notices"] = len(notice_ids(session, since, now))
     counts["expired_proposals"] = expired_between(session, since, now)
     session.add(audit(digest_id, today, counts))
     session.commit()
@@ -214,6 +242,8 @@ class DigestView:
     overdue: list[ItemView]
     # Proposals that expired unanswered since the previous digest
     expired_proposals: int
+    # Items found as notices since the previous digest, oldest first (ADR 0017)
+    notices: list[ItemView]
 
 
 def newest(condition: Any) -> Any:
@@ -287,6 +317,16 @@ def phase_of(view: ItemView, now: datetime, pending: set[uuid.UUID]) -> Phase:
     return phase(view.status, view.due_at, source_at, now, held)
 
 
+def received_key(view: ItemView) -> tuple[datetime, str]:
+    """When the item's email arrived, oldest first."""
+    return (view.received_at or view.created_at, view.title)
+
+
+def views_of(session: Session, ids: list[uuid.UUID]) -> list[ItemView]:
+    rows = session.execute(item_query().where(Item.id.in_(ids))).all() if ids else []
+    return [to_view(row) for row in rows]
+
+
 def shown(view: ItemView, now: datetime, pending: set[uuid.UUID]) -> bool:
     """Whether a stored item still belongs in its section at `now`.
 
@@ -324,6 +364,8 @@ def read_digest(session: Session, digest: Digest, now: datetime) -> DigestView:
         sections[name].sort(key=order_key)
     expired = expired_between(session, digest.since, digest.generated_at)
     overdue = by_phase(session, now)["overdue"]
+    found = notice_ids(session, digest.since, digest.generated_at)
+    notices = sorted(views_of(session, found), key=received_key)
     return DigestView(
         digest.id,
         digest.digest_date,
@@ -332,11 +374,14 @@ def read_digest(session: Session, digest: Digest, now: datetime) -> DigestView:
         sections,
         overdue,
         expired,
+        notices,
     )
 
 
 def list_items(session: Session, statuses: tuple[str, ...]) -> list[ItemView]:
-    rows = session.execute(item_query().where(Item.status.in_(statuses))).all()
+    """Deadlines and to-dos with these statuses. Notices are never listed here."""
+    query = item_query().where(Item.status.in_(statuses), Item.kind != NOTICE)
+    rows = session.execute(query).all()
     views = [to_view(row) for row in rows]
     views.sort(key=order_key)
     return views
@@ -348,11 +393,24 @@ class PastView:
     past: list[ItemView]
     # Needs review, no due time, source email over 14 days old
     stale: list[ItemView]
+    # Every open notice, most recently received first (ADR 0017)
+    notices: list[ItemView]
+
+
+def open_notices(session: Session) -> list[ItemView]:
+    query = select(Item.id).where(Item.kind == NOTICE, Item.status.in_(ACTIVE))
+    ids = list(session.execute(query).scalars())
+    views = views_of(session, ids)
+    views.sort(key=received_key, reverse=True)
+    return views
 
 
 def past_items(session: Session, now: datetime) -> PastView:
-    """Active items that have left the digest at `now`. Their status is unchanged."""
+    """Active items that have left the digest at `now`, and every open notice.
+
+    Their status is unchanged.
+    """
     groups = by_phase(session, now)
     # Most recently due first: the ones the owner may still act on lead
     past = groups["past"][::-1]
-    return PastView(past, groups["stale"])
+    return PastView(past, groups["stale"], open_notices(session))

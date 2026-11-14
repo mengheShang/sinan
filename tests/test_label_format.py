@@ -130,3 +130,10 @@ def test_describe_leaves_out_input_values() -> None:
     text = fmt.describe(caught.value)
     assert text.startswith("from_addr:")
     assert "marker" not in text
+
+
+def test_notice_is_a_label_kind() -> None:
+    labeled = fmt.ItemLabel.model_validate(item(kind="notice"))
+    assert labeled.kind == "notice"
+    with pytest.raises(ValidationError):
+        fmt.ItemLabel.model_validate(item(kind="announcement"))

@@ -15,7 +15,7 @@ import pytest
 from pydantic import SecretStr
 
 from app.extraction.prompt import PROMPT, PROMPT_HASH, PROMPT_VERSION, prepare, strip_quoted
-from app.extraction.validate import Checked, check
+from app.extraction.validate import Checked, check, is_change
 from app.providers.anthropic_llm import AnthropicExtractor, error_for, request
 from app.providers.llm import ExtractorError
 
@@ -53,7 +53,7 @@ def run(raw: str, body: str = BODY) -> Checked:
 
 
 def test_prompt_is_versioned_and_hashed() -> None:
-    assert PROMPT_VERSION == "v1"
+    assert PROMPT_VERSION == "v2"
     assert len(PROMPT_HASH) == 64
     assert "untrusted data" in PROMPT
 
@@ -395,3 +395,87 @@ def test_api_errors_map_to_short_codes(error: anthropic.APIError, code: str, sco
     # The SDK's message is dropped, so it can never reach a log
     assert "quote the email" not in str(caught.value)
     assert caught.value.__cause__ is None
+
+
+# ---- Notices (ADR 0017) ----
+
+EVENT = "Interested students may register for the workshop by Friday Nov 20 at 5pm PT."
+
+
+def notice(**changes: Any) -> dict[str, Any]:
+    base = item(
+        kind="notice",
+        course=None,
+        title="Workshop registration",
+        due_raw="Friday Nov 20 at 5pm PT",
+        evidence=EVENT,
+    )
+    base.update(changes)
+    return base
+
+
+def test_optional_event_with_a_date_is_an_open_notice_with_its_date() -> None:
+    (only,) = run(reply(notice()), EVENT).items
+    assert only.kind == "notice"
+    assert only.status == "open"
+    assert only.review is None
+    assert only.due_at == datetime(2026, 11, 21, 1, 0, tzinfo=UTC)
+
+
+def test_required_deadline_stays_a_deadline() -> None:
+    (only,) = run(reply(item())).items
+    assert only.kind == "deadline"
+    assert only.status == "open"
+
+
+def test_notice_never_needs_review() -> None:
+    # Each of these would put a deadline in review
+    cases = [
+        notice(due_raw="11/20 at 5pm PT", evidence="Register by 11/20 at 5pm PT if you like."),
+        notice(change_type="update"),
+        notice(due_raw=None),
+    ]
+    body = EVENT + "\nRegister by 11/20 at 5pm PT if you like."
+    for raw in cases:
+        (only,) = run(reply(raw), body).items
+        assert (only.status, only.review) == ("open", None)
+
+
+def test_notice_keeps_an_unparsed_date_as_written() -> None:
+    raw = notice(due_raw="11/20 at 5pm PT", evidence="Register by 11/20 at 5pm PT if you like.")
+    (only,) = run(reply(raw), "Register by 11/20 at 5pm PT if you like.").items
+    assert only.due_at is None
+    assert only.due_raw == "11/20 at 5pm PT"
+
+
+def test_notice_drops_a_date_outside_its_evidence() -> None:
+    (only,) = run(reply(notice(due_raw="Dec 31")), EVENT).items
+    assert only.due_at is None
+    assert only.due_raw is None
+
+
+def test_notice_is_never_a_change() -> None:
+    (only,) = run(reply(notice(change_type="update")), EVENT).items
+    assert only.change_type == "update"
+    assert not is_change(only)
+    (deadline,) = run(reply(item(change_type="update"))).items
+    assert is_change(deadline)
+
+
+def test_notice_without_evidence_is_dropped() -> None:
+    checked = run(reply(notice(evidence="Everything here is optional.")), EVENT)
+    assert checked.items == []
+
+
+@pytest.mark.parametrize("kind", ["action", "approved", "grant", "Notice"])
+def test_other_kinds_are_refused(kind: str) -> None:
+    checked = run(reply(item(kind=kind)))
+    assert (checked.status, checked.detail) == ("invalid", "bad_schema")
+
+
+def test_prompt_offers_exactly_three_kinds() -> None:
+    from app.extraction.schema import OUTPUT_SCHEMA
+
+    kind = OUTPUT_SCHEMA["properties"]["items"]["items"]["properties"]["kind"]
+    assert kind["enum"] == ["deadline", "todo", "notice"]
+    assert '"notice"' in PROMPT

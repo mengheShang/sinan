@@ -189,7 +189,7 @@ def test_digest_is_audited_with_counts_only(session: Session) -> None:
     event = session.execute(sa.select(AuditEvent)).scalar_one()
     assert event.event_type == "digest"
     expected = {"date": "2026-11-11", "new": 1, "due_soon": 1, "needs_review": 0}
-    assert event.data == {**expected, "expired_proposals": 0}
+    assert event.data == {**expected, "notices": 0, "expired_proposals": 0}
 
 
 def test_digest_shows_current_item_state(session: Session) -> None:
