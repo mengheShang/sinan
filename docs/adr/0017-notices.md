@@ -1,6 +1,6 @@
 # ADR 0017: Optional and general mail becomes a morning notice
 
-- Status: Proposed
+- Status: Accepted (2026-11-14)
 - Date: 2026-11-13, amended 2026-11-14 (owner review of PR #72)
 - Decider: Menghe
 - Amends: ADR 0007 (LLM extraction), ADR 0008 (daily digest), ADR 0014 (change matching), ADR 0015 (past and stale items)
