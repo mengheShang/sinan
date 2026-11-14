@@ -87,14 +87,22 @@ Exactly what the prefilter and the extractor see of the email, and nothing else.
 
 ## Labeling notes
 
-- `due_at` follows the deterministic rules in ADR 0005, which say when a time counts as ambiguous. For example:
-  - a numeric date such as `11/18`, "midnight", "next Friday", a missing time and a missing time zone are all ambiguous;
-  - a missing year is not: it is inferred from the email date.
-- Phrases whose meaning is still open, such as "end of day" (ADR 0009, Issue 4), are left out of the synthetic set until they are decided.
+- `due_at` follows the deterministic parsing rules: ADR 0005, as changed by ADR 0011 and ADR 0016. Fill in `due_at` and leave `due_ambiguous` false when:
+  - the zone is missing: use the owner's zone, `SINAN_TIMEZONE` (America/Los_Angeles) (ADR 0016, rule 1);
+  - the time is missing from a date: use 23:59 in the stated or assumed zone (ADR 0016, rule 2);
+  - the phrase is "first <weekday> after this email" or "in/within N days/weeks": count from the email's local send date (the first such weekday strictly after it, or the send date plus N days), at 23:59 unless a time is given (ADR 0016, rules 3 and 5);
+  - the phrase is "end of day" or "EOD": use 23:59 in the stated zone, or in the owner's zone when none is stated (ADR 0011, decision 1, with ADR 0016, rule 1);
+  - the year is missing: infer it from the email date (ADR 0005).
+- Still ambiguous, so `due_ambiguous` is true and `due_at` is null (ADR 0016, rule 4 and decisions 6 to 8):
+  - numeric dates such as `11/18`, "midnight", "next Friday", and a weekday that does not match the date;
+  - phrases tied to another event ("the Friday after the midterm") and vague spans ("in a few days", "a week from Friday");
+  - a zone that is named but not understood ("JST", "BST", "local time");
+  - a time tied to something else ("before class", "Friday morning", "close of business");
+  - a body that names a zone `due_raw` leaves out, or evidence that gives a clock time `due_raw` leaves out.
 - An extension or a rescheduled event is a new labeled item whose `changes` points to the item it replaces. Chains are allowed: the third version points to the second.
 - Instructions inside an email (prompt injection) are labeled as data. The labels describe the email's real deadlines and ignore what the email asks the system to do.
 - Marketing deadlines ("sale ends Sunday") and receipts are not items.
-- The kind follows whether the owner personally **must** act, not whether a date appears (ADR 0017). Required actions are `deadline` (with a due time) or `todo`. Optional or general content is a `notice`: "if you want", "interested students", "optional", "you may"; event invitations, talk sign-ups, safety alerts, health advice, platform digests and broadcasts. A notice keeps its due fields when it has a date ("register by Nov 20" for an optional event). Marketing, receipts, sign-in codes and casual personal messages stay without items.
+- The kind follows whether the owner personally **must** act, not whether a date appears (ADR 0017). Required actions are `deadline` (with a due time) or `todo`. Optional or general content is a `notice`: "if you want", "interested students", "optional", "you may"; event invitations, talk sign-ups, safety alerts, health advice, platform digests and broadcasts. A notice keeps its due fields when it has a date ("register by Nov 20" for an optional event), labeled by the same rules as any other item. Label what the email says, not what the prompt guesses: a broadcast that tells every student they must act ("All international students must submit the form by Nov 30") is a `deadline`, however general its sender. Marketing, receipts, sign-in codes and casual personal messages stay without items.
 
 ## Changing the synthetic set
 
