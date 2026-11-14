@@ -179,3 +179,8 @@ def test_baseline_without_demotion_still_reads(tmp_path: Path) -> None:
     data = {name: now[name] for name in CORE}
     path = write(tmp_path / "baseline.json", {"synthetic": data})
     assert main(["--baseline", str(path)]) == 0
+
+
+def test_committed_baseline_has_demotion() -> None:
+    data = json.loads(gate.BASELINE.read_text(encoding="utf-8"))
+    assert data["synthetic"][DEMOTED] is not None
