@@ -1,6 +1,6 @@
 """Table-driven tests for explicit deadline parsing. All times are compared in UTC."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -505,6 +505,47 @@ NEEDS_REVIEW_COUNTED = [
 @pytest.mark.parametrize(("raw", "sent", "reason"), NEEDS_REVIEW_COUNTED)
 def test_needs_review_counted(raw: str, sent: datetime, reason: str) -> None:
     assert parse_due(raw, sent) == DueParse(None, reason)
+
+
+# Rule 5, amended 2026-11-14: "in/within N hours" is the send time plus N
+# hours, an exact instant with nothing assumed
+HOURS = (False, False, True)
+SENT_SECONDS = datetime(2026, 10, 29, 12, 52, 56, tzinfo=UTC)
+
+PARSED_HOURS = [
+    ("within 48 hours", SENT_SECONDS, datetime(2026, 10, 31, 12, 52, 56, tzinfo=UTC)),
+    ("in 2 hours", SENT, SENT + timedelta(hours=2)),
+    ("within two hours", SENT, SENT + timedelta(hours=2)),
+    ("in 24 hrs", SENT, SENT + timedelta(hours=24)),
+    ("within an hour", SENT, SENT + timedelta(hours=1)),
+    # Across the fall-back change: still exactly N hours later
+    ("in 72 hours", BEFORE_FALL_BACK, BEFORE_FALL_BACK + timedelta(hours=72)),
+]
+
+
+@pytest.mark.parametrize(("raw", "sent", "expected"), PARSED_HOURS)
+def test_parsed_hours(raw: str, sent: datetime, expected: datetime) -> None:
+    assert parse_due(raw, sent) == DueParse(expected, None, *HOURS)
+
+
+NEEDS_REVIEW_HOURS = [
+    # Another date, day, time or zone in the same phrase: two due times
+    ("within 48 hours, by Nov 14", "multiple_dates"),
+    ("in 2 hours or tomorrow", "multiple_dates"),
+    ("within 24 hours, Friday", "multiple_dates"),
+    ("within 24 hours by 5pm", "multiple_dates"),
+    ("within 24 hours PT", "multiple_dates"),
+    ("in 2 hours or in 3 hours", "multiple_dates"),
+    ("in 2 days or in 3 hours", "multiple_dates"),
+    # Vague counts and zero
+    ("in a few hours", "no_date"),
+    ("in 0 hours", "relative_span"),
+]
+
+
+@pytest.mark.parametrize(("raw", "reason"), NEEDS_REVIEW_HOURS)
+def test_needs_review_hours(raw: str, reason: str) -> None:
+    assert parse_due(raw, SENT) == DueParse(None, reason)
 
 
 def test_only_counted_dates_are_marked_computed() -> None:

@@ -2,7 +2,7 @@
 
 An evaluation set is a list of emails, each with the labels a correct extractor would produce. The evaluation runner (ADR 0009, Issue 2) feeds each email to the pipeline and compares the result with the labels.
 
-- `synthetic.jsonl`: 58 fictional emails, safe to commit and used in CI and the demo. Every person, course, address and domain is made up, and senders use the reserved `example.*` domains.
+- `synthetic.jsonl`: 59 fictional emails, safe to commit and used in CI and the demo. Every person, course, address and domain is made up, and senders use the reserved `example.*` domains.
 - Real development and test sets live in the label table in the live database, never in this repository (ADR 0009, decisions 3 and 5). They use the same format. The owner labels them on the Dashboard's labeling page (`/label`), which checks every label with the same models before storing it.
 - `dataset.py` loads a set and checks it. A bad sample fails with its line number and field path, never the email text. The format models themselves live in `app/db/label_format.py`, so the backend can use them without shipping `evals/`.
 
@@ -91,6 +91,7 @@ Exactly what the prefilter and the extractor see of the email, and nothing else.
   - the zone is missing: use the owner's zone, `SINAN_TIMEZONE` (America/Los_Angeles) (ADR 0016, rule 1);
   - the time is missing from a date: use 23:59 in the stated or assumed zone (ADR 0016, rule 2);
   - the phrase is "first <weekday> after this email" or "in/within N days/weeks": count from the email's local send date (the first such weekday strictly after it, or the send date plus N days), at 23:59 unless a time is given (ADR 0016, rules 3 and 5);
+  - the phrase is "in/within N hours": the email's send time (`sent_at`) plus exactly N hours, to the second (ADR 0016, rule 5, amended 2026-11-14);
   - the phrase is "end of day" or "EOD": use 23:59 in the stated zone, or in the owner's zone when none is stated (ADR 0011, decision 1, with ADR 0016, rule 1);
   - the year is missing: infer it from the email date (ADR 0005).
 - Still ambiguous, so `due_ambiguous` is true and `due_at` is null (ADR 0016, rule 4 and decisions 6 to 8):

@@ -92,7 +92,7 @@ def test_recorded_run_is_the_same_every_time() -> None:
     first = synthetic_report()
     second = synthetic_report()
     assert first == second
-    assert first["counts"]["emails"] == 58
+    assert first["counts"]["emails"] == 59
     assert first["mode"] == "recorded"
 
 

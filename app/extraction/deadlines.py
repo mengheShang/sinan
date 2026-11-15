@@ -24,7 +24,9 @@ extended by ADR 0011 and ADR 0016):
   ("Friday"), today / tonight / tomorrow, "the first Friday after this
   email" (ADR 0016, rule 3), or "in N days/weeks" or "within N days/weeks"
   (ADR 0016, rule 5): the email's local date plus N days or N weeks, and
-  the result says the date was computed. Numeric dates such as 11/14 always
+  the result says the date was computed. "in N hours" or "within N hours"
+  is the email's send time plus exactly N hours, with no zone or time
+  assumed (rule 5, amended). Numeric dates such as 11/14 always
   need review, because 11/12 has two readings.
 - A missing year is inferred from the email date: the one year that puts the
   date between 30 days before and 335 days after the email.
@@ -234,6 +236,8 @@ COUNTS = {
 UNIT_DAYS = {"day": 1, "week": 7}
 # "in 3 days", "within two weeks"; "in a few days" does not match
 COUNTED_RE = re.compile(r"\b(?:in|within)\s+(\d{1,2}|" + "|".join(COUNTS) + r")\s+(day|week)s?\b")
+# "in 48 hours", "within two hours" (ADR 0016, rule 5, amended 2026-11-14)
+HOURS_RE = re.compile(r"\b(?:in|within)\s+(\d{1,3}|" + "|".join(COUNTS) + r")\s+(?:hours?|hrs?)\b")
 # A span: "Friday in two weeks", "a week from today", "Friday next week"
 SPAN_RE = re.compile(
     r"\bin\s+(?:\d+|" + NUMBER_WORDS + r")\s+(?:day|week|month)s?\b"
@@ -549,6 +553,37 @@ def counted_elsewhere(text: str) -> str | None:
     return None
 
 
+def names_other_due(text: str, cased: str) -> bool:
+    """Whether the text gives any date, day, time or zone of its own."""
+    if find_date(text, cased) is not None or find_time(text) is not None:
+        return True
+    if WEEKDAY_RE.search(text) or RELATIVE_RE.search(text):
+        return True
+    if COUNTED_RE.search(text) or FIRST_AFTER_RE.search(text):
+        return True
+    return names_zone(text)
+
+
+def hours_after(text: str, cased: str, sent_at: datetime) -> DueParse | None:
+    """The send time plus N hours, for "in/within N hours"; None without one.
+
+    The result is an exact instant, so no zone or time is assumed. Anything
+    else that names a date, day, time or zone makes it two due times.
+    """
+    found = HOURS_RE.findall(text)
+    if not found:
+        return None
+    rest = HOURS_RE.sub(" ", text)
+    if len(found) > 1 or names_other_due(rest, cased):
+        return review("multiple_dates")
+    count_s = found[0]
+    count = int(count_s) if count_s.isdigit() else COUNTS[count_s]
+    if count < 1:
+        return review("relative_span")
+    due_at = sent_at.astimezone(UTC) + timedelta(hours=count)
+    return DueParse(due_at, None, date_computed=True)
+
+
 def parse_due(due_raw: str, sent_at: datetime, home: tzinfo = HOME) -> DueParse:
     """Parse `due_raw` against the email's send time (timezone-aware).
 
@@ -557,6 +592,9 @@ def parse_due(due_raw: str, sent_at: datetime, home: tzinfo = HOME) -> DueParse:
     if sent_at.tzinfo is None:
         raise ValueError("sent_at must be timezone-aware")
     cased = tidy(due_raw)
+    by_hours = hours_after(normalize(due_raw), cased, sent_at)
+    if by_hours is not None:
+        return by_hours
     offsets = find_offsets(normalize(due_raw))
     if isinstance(offsets, str):
         return review(offsets)
