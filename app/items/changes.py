@@ -44,14 +44,13 @@ from app.items.assumed import Assumed, assumed_of
 from app.items.carry import carry_time
 from app.items.linking import Pick, ask
 from app.items.matching import Known, choices, match
-from app.proposals import expiry, item_update, payload_hash
+from app.proposals import DETERMINISTIC, expiry, item_update, payload_hash
+from app.proposals import Link as Path
 from app.providers.llm import LinkPicker
 
 ACTIVE = ("open", "needs_review")
 
 Result = Literal["proposed", "unchanged", "stale", "several", "none"]
-
-Path = Literal["deterministic", "llm"]
 
 
 @dataclass(frozen=True)
@@ -227,7 +226,8 @@ def create(
     after = (item.due_raw, item.due_at)
     old = current_assumed(session, target.id)
     new = Assumed(item.zone_assumed, item.time_assumed, item.date_computed, item.time_carried)
-    payload = item_update(str(target.id), before, after, item.evidence, old, new)
+    path = link.path or DETERMINISTIC
+    payload = item_update(str(target.id), before, after, item.evidence, old, new, path)
     proposal = Proposal(
         kind="item_update",
         item_id=target.id,

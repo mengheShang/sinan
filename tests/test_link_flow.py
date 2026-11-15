@@ -19,6 +19,7 @@ from app.db.extract import Counts, extract_pending
 from app.db.models import Account, AuditEvent, Item, ItemVersion, Message, Proposal
 from app.extraction.link_prompt import LINK_PROMPT_HASH, LINK_PROMPT_VERSION
 from app.extraction.prefilter import Rules
+from app.proposals import payload_hash
 from app.providers.fakes import FakeExtractor, FakeLinkPicker
 from app.providers.llm import ExtractorError
 
@@ -314,3 +315,12 @@ def test_without_a_picker_extraction_behaves_as_before(session: Session) -> None
     assert proposals(session) == []
     assert counts.link_asked == 0
     assert change_item(session).status == "needs_review"
+
+
+def test_the_payload_records_the_link_under_the_hash(session: Session) -> None:
+    posted(session)
+    mail(session, EXTENDED, 24)
+    extract(session, FakeLinkPicker({"<choices>": '{"target": 1}'}))
+    (proposal,) = proposals(session)
+    assert proposal.payload["link"] == "llm"
+    assert proposal.payload_hash == payload_hash(proposal.payload)

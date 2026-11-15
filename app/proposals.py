@@ -17,11 +17,16 @@ never change for a given payload:
 import hashlib
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from app.items.assumed import NOTHING, Assumed, assumed_fields
 
 HASH_PATTERN = r"^[0-9a-f]{64}$"
+
+# How an item_update proposal's item was chosen (ADR 0019)
+Link = Literal["deterministic", "llm"]
+DETERMINISTIC: Link = "deterministic"
+LLM: Link = "llm"
 
 
 class PayloadError(ValueError):
@@ -137,12 +142,14 @@ def item_update(
     evidence: str,
     before_assumed: Assumed = NOTHING,
     after_assumed: Assumed = NOTHING,
+    link: Link = DETERMINISTIC,
 ) -> dict[str, Any]:
     """The payload of an item_update proposal: a new due time for one item.
 
     `before` and `after` are (due_raw, due_at), each with the parts that
-    were assumed (ADR 0016). The hash covers what the owner sees: both
-    times, their assumed parts and the evidence.
+    were assumed (ADR 0016). `link` says how the item was chosen (ADR
+    0019). The hash covers what the owner sees: both times, their assumed
+    parts, the evidence and the link.
     """
     old = {"due_raw": before[0], "due_at": utc_text(before[1])}
     new = {"due_raw": after[0], "due_at": utc_text(after[1])}
@@ -151,4 +158,13 @@ def item_update(
         "before": {**old, **assumed_fields(before_assumed)},
         "after": {**new, **assumed_fields(after_assumed)},
         "evidence": evidence,
+        "link": link,
     }
+
+
+def link_of(payload: dict[str, Any]) -> Link:
+    """How the payload's item was chosen. A payload from before ADR 0019 has
+    no `link` and reads as deterministic, as do unknown values."""
+    if payload.get("link") == LLM:
+        return LLM
+    return DETERMINISTIC

@@ -1,4 +1,5 @@
 // Shapes shared by the proposal list, its buttons and their server actions
+import type { Link } from "./link";
 
 export type Due = {
   due_raw: string | null;
@@ -19,6 +20,8 @@ export type Proposal = {
   before: Due;
   after: Due;
   evidence: string | null;
+  // How the item was chosen; part of the hashed payload (ADR 0019)
+  link: Link;
   payload_hash: string;
   created_at: string;
   expires_at: string;

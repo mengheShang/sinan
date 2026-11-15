@@ -27,7 +27,7 @@ from app.actions.proposals import (
 )
 from app.db.models import Account, Item, Message, Proposal
 from app.items.assumed import assumed_of
-from app.proposals import HASH_PATTERN
+from app.proposals import HASH_PATTERN, Link, link_of
 from apps.api.clock import ClockDep
 from apps.api.digest import SettingsDep
 from apps.api.oauth import SessionDep
@@ -58,6 +58,9 @@ class ProposalOut(BaseModel):
     before: DueOut
     after: DueOut
     evidence: str | None
+    # How the item was chosen (ADR 0019); "llm" gets a badge on the Dashboard.
+    # Part of the hashed payload; older payloads without it read as deterministic
+    link: Link
     # Sent back on approval, so the owner approves exactly what was shown
     payload_hash: str
     created_at: datetime
@@ -106,6 +109,7 @@ def to_out(row: Any, state: str, live: bool) -> ProposalOut:
         before=due_out(payload.get("before")),
         after=due_out(payload.get("after")),
         evidence=evidence if isinstance(evidence, str) else None,
+        link=link_of(payload),
         payload_hash=proposal.payload_hash,
         created_at=proposal.created_at,
         expires_at=proposal.expires_at,
