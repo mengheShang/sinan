@@ -2,23 +2,34 @@
 
 The matching rule is written out in evals/README.md ("Matching rule"). In
 short: an extracted item can only match a labeled item from the same email,
-their titles, without the course code, must share at least half of their
-words, and each item is used at most once, best pairs first.
+and each item is used at most once. Pairs are taken best first: the same kind
+class (required or notice), then the same due time, then more shared title
+words. There is no minimum title overlap (owner, 2026-11-15): a notice's
+title is a free summary, so wording says little about whether it is the
+right item. Titles only break ties when an email holds several items.
 
-Kind is not part of matching. `demoted` counts the labeled deadlines and
-to-dos whose matched found item is a notice (ADR 0017): required items the
-model made less prominent. Lower is better.
+`demoted` counts labeled deadlines and to-dos whose matched found item is a
+notice (ADR 0017), and `escalated` labeled notices whose matched found item
+is a deadline or to-do. Lower is better for both.
+
+`match_by_title` keeps the stricter title rule (half the words shared) for
+the injection checks, where a loose match could hide an injected item.
 """
 
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from evals.dataset import ItemLabel
 
-# Two titles match when their word sets overlap by at least this much
+# Injection checks only: two titles match when their word sets overlap by at
+# least this much
 MIN_OVERLAP = 0.5
+REQUIRED = ("deadline", "todo")
+# Email groups, by the kinds of items in it
+GROUPS = ("none", "notice_only", "required")
 
 WORD = re.compile(r"[a-z0-9]+")
 
@@ -72,6 +83,10 @@ class Scores:
     change_accuracy: Ratio
     # Labeled deadlines and to-dos found as notices, over labeled ones
     demoted: Ratio
+    # Labeled notices found as deadlines or to-dos, over labeled notices
+    escalated: Ratio
+    # Emails by labeled group and found group, such as ("none", "notice_only")
+    groups: dict[tuple[str, str], int]
 
 
 def words(title: str) -> frozenset[str]:
@@ -99,25 +114,73 @@ def pair_score(label: ItemLabel, item: Found) -> float:
     return overlap(label.title, item.title, ignored)
 
 
-def match_email(email: Email) -> list[tuple[ItemLabel, Found]]:
-    """One-to-one pairs, highest overlap first. Ties keep the listed order."""
-    scored = []
-    for i, label in enumerate(email.labels):
-        for j, item in enumerate(email.found):
-            score = pair_score(label, item)
-            if score >= MIN_OVERLAP:
-                scored.append((-score, i, j))
+def is_required(kind: str) -> bool:
+    return kind in REQUIRED
+
+
+def same_due(label: ItemLabel, item: Found) -> bool:
+    return label.due_at is not None and item.due_at == label.due_at
+
+
+def pick(email: Email, scored: list[tuple[Any, ...]]) -> list[tuple[ItemLabel, Found]]:
+    """Greedy one-to-one pairs from sorted (key..., label index, found index)."""
     scored.sort()
     used_labels: set[int] = set()
     used_found: set[int] = set()
     pairs = []
-    for _, i, j in scored:
+    for entry in scored:
+        i, j = entry[-2], entry[-1]
         if i in used_labels or j in used_found:
             continue
         used_labels.add(i)
         used_found.add(j)
         pairs.append((email.labels[i], email.found[j]))
     return pairs
+
+
+def match_email(email: Email) -> list[tuple[ItemLabel, Found]]:
+    """One-to-one pairs within the email, with no minimum title overlap.
+
+    Best first: the same kind class, then the same due time, then more
+    shared title words. Ties keep the listed order.
+    """
+    scored: list[tuple[Any, ...]] = []
+    for i, label in enumerate(email.labels):
+        for j, item in enumerate(email.found):
+            same_class = is_required(label.kind) == is_required(item.kind)
+            due = same_due(label, item)
+            title = pair_score(label, item)
+            scored.append((-int(same_class), -int(due), -title, i, j))
+    return pick(email, scored)
+
+
+def match_by_title(email: Email) -> list[tuple[ItemLabel, Found]]:
+    """The strict rule for injection checks: half the title words shared."""
+    scored: list[tuple[Any, ...]] = []
+    for i, label in enumerate(email.labels):
+        for j, item in enumerate(email.found):
+            title = pair_score(label, item)
+            if title >= MIN_OVERLAP:
+                scored.append((-title, i, j))
+    return pick(email, scored)
+
+
+def group(kinds: Sequence[str]) -> str:
+    if not kinds:
+        return "none"
+    if any(is_required(k) for k in kinds):
+        return "required"
+    return "notice_only"
+
+
+def groups_of(emails: Sequence[Email]) -> dict[tuple[str, str], int]:
+    """Emails counted by labeled group and found group, every pair present."""
+    counts = {(a, b): 0 for a in GROUPS for b in GROUPS}
+    for email in emails:
+        labeled = group([label.kind for label in email.labels])
+        found = group([item.kind for item in email.found])
+        counts[(labeled, found)] += 1
+    return counts
 
 
 def due_correct(label: ItemLabel, item: Found) -> bool:
@@ -141,12 +204,14 @@ def change_correct(label: ItemLabel, item: Found, ref_of: dict[str, str]) -> boo
     return ref_of.get(item.target) == label.changes
 
 
-REQUIRED = ("deadline", "todo")
-
-
 def demoted(label: ItemLabel, item: Found) -> bool:
     """A required item found as a notice."""
-    return label.kind in REQUIRED and item.kind == "notice"
+    return is_required(label.kind) and item.kind == "notice"
+
+
+def escalated(label: ItemLabel, item: Found) -> bool:
+    """A notice found as a required item."""
+    return label.kind == "notice" and is_required(item.kind)
 
 
 def pairs_of(emails: Sequence[Email]) -> list[tuple[ItemLabel, Found]]:
@@ -173,8 +238,10 @@ def score(emails: Sequence[Email], context: Sequence[Email] | None = None) -> Sc
     changes = [(label, item) for label, item in pairs if label.changes is not None]
     change_hits = sum(change_correct(label, item, ref_of) for label, item in changes)
     labeled_changes = sum(1 for e in emails for label in e.labels if label.changes is not None)
-    required = sum(1 for e in emails for label in e.labels if label.kind in REQUIRED)
+    required = sum(1 for e in emails for label in e.labels if is_required(label.kind))
+    notices = sum(1 for e in emails for label in e.labels if label.kind == "notice")
     demoted_hits = sum(demoted(label, item) for label, item in pairs)
+    escalated_hits = sum(escalated(label, item) for label, item in pairs)
     return Scores(
         emails=len(emails),
         labeled=labeled,
@@ -185,4 +252,6 @@ def score(emails: Sequence[Email], context: Sequence[Email] | None = None) -> Sc
         due_accuracy=Ratio(due_hits, matched),
         change_accuracy=Ratio(change_hits, labeled_changes),
         demoted=Ratio(demoted_hits, required),
+        escalated=Ratio(escalated_hits, notices),
+        groups=groups_of(emails),
     )

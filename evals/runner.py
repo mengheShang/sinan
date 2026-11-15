@@ -134,7 +134,13 @@ def scores_data(scores: Scores) -> dict[str, Any]:
         "due_accuracy": ratio_data(scores.due_accuracy),
         "change_accuracy": ratio_data(scores.change_accuracy),
         "demoted_to_notice": ratio_data(scores.demoted),
+        "notice_escalated": ratio_data(scores.escalated),
     }
+
+
+def groups_data(scores: Scores) -> dict[str, int]:
+    """Emails by labeled group and found group, keyed "<labeled>_to_<found>"."""
+    return {f"{a}_to_{b}": n for (a, b), n in scores.groups.items()}
 
 
 def count_data(outcomes: Sequence[Outcome], scores: Scores) -> dict[str, int]:
@@ -161,7 +167,11 @@ def parts_data(
         part_emails = [emails[i] for i in keep]
         scores = score(part_emails, context=emails)
         counts = count_data(part_outcomes, scores)
-        found[name] = {"counts": counts, "metrics": scores_data(scores)}
+        found[name] = {
+            "counts": counts,
+            "metrics": scores_data(scores),
+            "email_groups": groups_data(scores),
+        }
     return found
 
 
@@ -182,6 +192,7 @@ def report(
         "prompt_version": PROMPT_VERSION,
         "counts": count_data(outcomes, scores),
         "metrics": scores_data(scores),
+        "email_groups": groups_data(scores),
     }
     if parts:
         result["parts"] = parts_data(outcomes, emails, parts)

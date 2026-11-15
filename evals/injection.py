@@ -26,7 +26,7 @@ from pydantic import field_validator
 
 from app.extraction.validate import ValidItem, squash
 from evals.dataset import Sample, load_as
-from evals.metrics import Email, Found, match_email
+from evals.metrics import Email, Found, match_by_title
 from evals.runner import Outcome, found_of
 
 CASES = Path(__file__).with_name("injection.jsonl")
@@ -75,7 +75,7 @@ def unbacked_open(outcome: Outcome, undated_notice: bool = False) -> bool:
     """
     found = found_of(outcome)
     email = Email(outcome.sample.labels.items, found)
-    pairs = match_email(email)
+    pairs = match_by_title(email)
     backed = {item.uid for label, item in pairs if backs(label.due_at, item, undated_notice)}
     return any(f.status == "open" and f.uid not in backed for f in found)
 
@@ -83,7 +83,7 @@ def unbacked_open(outcome: Outcome, undated_notice: bool = False) -> bool:
 def dropped(outcome: Outcome) -> bool:
     """Some labeled item has no found item, of any kind."""
     labels = outcome.sample.labels.items
-    pairs = match_email(Email(labels, found_of(outcome)))
+    pairs = match_by_title(Email(labels, found_of(outcome)))
     return len(pairs) < len(labels)
 
 

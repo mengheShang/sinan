@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 
 from evals.dataset import ItemLabel
-from evals.metrics import Email, Found, Ratio, match_email, overlap, score
+from evals.metrics import Email, Found, Ratio, match_by_title, match_email, overlap, score
 
 DUE = datetime(2026, 11, 14, 7, 59, tzinfo=UTC)
 OTHER = datetime(2026, 11, 15, 7, 59, tzinfo=UTC)
@@ -82,9 +82,9 @@ def test_nothing_labeled() -> None:
 
 
 def test_recall_and_precision() -> None:
-    labels = [label("a", "Homework 3"), label("b", "Lab 5")]
-    items = [found("x", "Homework 3"), found("y", "Read the notes")]
-    scores = score([Email(labels, items)])
+    first = Email([label("a", "Homework 3"), label("b", "Lab 5")], [found("x", "Homework 3")])
+    second = Email([], [found("y", "Read the notes")])
+    scores = score([first, second])
     assert scores.matched == 1
     assert scores.recall == Ratio(1, 2)
     assert scores.precision == Ratio(1, 2)
@@ -104,22 +104,22 @@ def test_overlap_of_titles() -> None:
     assert overlap("", "Lab 5") == 0.0
 
 
-def test_course_words_do_not_count() -> None:
+def test_course_words_do_not_count_in_title_rule() -> None:
     labels = [label("a", "Midterm exam", course="MATH 005")]
     items = [found("x", "MATH 005 midterm", course=None)]
-    assert len(match_email(Email(labels, items))) == 1
+    assert len(match_by_title(Email(labels, items))) == 1
 
 
-def test_title_that_is_only_the_course_matches_nothing() -> None:
+def test_title_that_is_only_the_course_matches_nothing_in_title_rule() -> None:
     labels = [label("a", "CS 000")]
     items = [found("x", "CS 000")]
-    assert match_email(Email(labels, items)) == []
+    assert match_by_title(Email(labels, items)) == []
 
 
-def test_each_item_is_used_once_best_first() -> None:
+def test_each_item_is_used_once_best_first_in_title_rule() -> None:
     labels = [label("a", "Problem Set 4"), label("b", "Problem Set 4 reading")]
     items = [found("x", "Problem Set 4 reading")]
-    pairs = match_email(Email(labels, items))
+    pairs = match_by_title(Email(labels, items))
     assert [(lab.ref, item.uid) for lab, item in pairs] == [("b", "x")]
 
 
@@ -204,3 +204,55 @@ def test_a_notice_found_as_a_deadline_is_not_demoted() -> None:
     scores = score([Email(labels, [found("a", "Guest talk")])])
     assert scores.demoted == Ratio(0, 0)
     assert scores.demoted.value is None
+    assert scores.escalated == Ratio(1, 1)
+
+
+# ---- Matching without a title threshold (owner, 2026-11-15) ----
+
+
+def test_a_notice_matches_whatever_its_title() -> None:
+    labels = [label("d", "Piazza daily digest 10/17", due=None, kind="notice")]
+    items = [found("x", "CSCI 455 forum: question about Lab 9", due=None, kind="notice")]
+    assert len(match_email(Email(labels, items))) == 1
+    assert score([Email(labels, items)]).recall == Ratio(1, 1)
+
+
+def test_two_required_items_pair_by_due_time() -> None:
+    labels = [label("a", "Homework 3"), label("b", "Project proposal", due=OTHER)]
+    items = [found("x", "Submit the proposal", due=OTHER), found("y", "HW three")]
+    pairs = match_email(Email(labels, items))
+    assert sorted((lab.ref, item.uid) for lab, item in pairs) == [("a", "y"), ("b", "x")]
+
+
+def test_same_kind_class_comes_before_title() -> None:
+    labels = [label("n", "Guest talk", due=None, kind="notice"), label("h", "Homework 3")]
+    items = [found("x", "Homework 3 guest talk", due=None, kind="notice"), found("y", "HW")]
+    pairs = match_email(Email(labels, items))
+    assert sorted((lab.ref, item.uid) for lab, item in pairs) == [("h", "y"), ("n", "x")]
+
+
+def test_extra_items_stay_unmatched() -> None:
+    labels = [label("n", "Newsletter", due=None, kind="notice")]
+    items = [
+        found("x", "Event one", due=None, kind="notice"),
+        found("y", "Event two", due=None, kind="notice"),
+    ]
+    scores = score([Email(labels, items)])
+    assert scores.recall == Ratio(1, 1)
+    assert scores.precision == Ratio(1, 2)
+
+
+def test_email_groups() -> None:
+    notice = label("n", "Talk", due=None, kind="notice")
+    emails = [
+        Email([], []),
+        Email([], [found("x", "Sale", due=None, kind="notice")]),
+        Email([notice], [found("y", "Talk", kind="todo")]),
+        Email([label("h", "Homework 3")], [found("z", "Homework 3")]),
+    ]
+    groups = score(emails).groups
+    assert groups[("none", "none")] == 1
+    assert groups[("none", "notice_only")] == 1
+    assert groups[("notice_only", "required")] == 1
+    assert groups[("required", "required")] == 1
+    assert sum(groups.values()) == 4
