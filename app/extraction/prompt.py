@@ -1,4 +1,4 @@
-"""Prompt v4 and the email text the model sees. Pure functions only.
+"""Prompt v5 and the email text the model sees. Pure functions only.
 
 The prompt is versioned and hashed: `extraction_runs` stores the version and
 the SHA-256 of the template, never the full prompt. Change the text and the
@@ -14,13 +14,16 @@ v4 (owner, 2026-11-15, after the first real dev run): one notice per email
 with a summary title, several required items when an email holds several,
 optional sign-ups and events as notices rather than to-dos, and company
 promotions skipped.
+v5 (owner, 2026-11-15): a deadline's or to-do's title is the task's name
+only, so a later change of the same task gets the same title and the change
+matcher (app/items/matching.py) can link it.
 """
 
 import hashlib
 import re
 from datetime import datetime
 
-PROMPT_VERSION = "v4"
+PROMPT_VERSION = "v5"
 
 PROMPT = """You extract deadlines, to-dos and notices from one email for a university
 student.
@@ -69,8 +72,11 @@ For each item:
 - kind: "notice" for a notice. For a required action, "deadline" when the
   email gives a due date or time, else "todo".
 - course: the course code as written, such as "CS 000", or null.
-- title: a short name for the task, or a short summary of the notice, under
-  80 characters.
+- title: under 80 characters. For a deadline or to-do, only the name of the
+  task as the course or sender calls it, such as "Homework 3", "Midterm
+  exam" or "Pay December rent": no dates, times, places, or words about a
+  change such as moved, extended or rescheduled. An update keeps the name of
+  the task it changes. For a notice, a short summary.
 - evidence: one sentence or phrase copied exactly from the email body,
   character for character, that shows the item. Never paraphrase it, and
   never take it from the subject line.
