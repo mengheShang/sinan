@@ -2,7 +2,7 @@
 
 An evaluation set is a list of emails, each with the labels a correct extractor would produce. The evaluation runner (ADR 0009, Issue 2) feeds each email to the pipeline and compares the result with the labels.
 
-- `synthetic.jsonl`: 59 fictional emails, safe to commit and used in CI and the demo. Every person, course, address and domain is made up, and senders use the reserved `example.*` domains.
+- `synthetic.jsonl`: 63 fictional emails, safe to commit and used in CI and the demo. Every person, course, address and domain is made up, and senders use the reserved `example.*` domains.
 - Real development and test sets live in the label table in the live database, never in this repository (ADR 0009, decisions 3 and 5). They use the same format. The owner labels them on the Dashboard's labeling page (`/label`), which checks every label with the same models before storing it.
 - `dataset.py` loads a set and checks it. A bad sample fails with its line number and field path, never the email text. The format models themselves live in `app/db/label_format.py`, so the backend can use them without shipping `evals/`.
 

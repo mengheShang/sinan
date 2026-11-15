@@ -1,5 +1,5 @@
 {
-  "prompt_version": "v3",
+  "prompt_version": "v4",
   "replies": {
     "syn-001": {
       "items": [
@@ -640,6 +640,53 @@
           "title": "Submit candidate information form",
           "evidence": "please submit the candidate information form within 48 hours of this email.",
           "due_raw": "within 48 hours",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-060": {
+      "items": [
+        {
+          "kind": "notice",
+          "course": null,
+          "title": "Department newsletter: resume workshop, robotics social, guest talk",
+          "evidence": "a resume workshop on Tuesday, a robotics club social on Wednesday, and a guest talk on machine learning on Thursday at 4pm.",
+          "due_raw": null,
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-061": {
+      "items": [
+        {
+          "kind": "notice",
+          "course": null,
+          "title": "Optional course experience survey",
+          "evidence": "Complete the optional course experience survey by Friday Nov 20 at 11:59pm PT for a chance to win a gift card.",
+          "due_raw": "Friday Nov 20 at 11:59pm PT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-062": {
+      "items": []
+    },
+    "syn-063": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "BIO 004",
+          "title": "Lab report 6",
+          "evidence": "Lab report 6 is due Friday Nov 20 at 11:59pm PT.",
+          "due_raw": "Friday Nov 20 at 11:59pm PT",
+          "change_type": "create"
+        },
+        {
+          "kind": "deadline",
+          "course": "BIO 004",
+          "title": "Field trip worksheet",
+          "evidence": "The field trip worksheet is due Monday Nov 23 at 5pm PT.",
+          "due_raw": "Monday Nov 23 at 5pm PT",
           "change_type": "create"
         }
       ]
