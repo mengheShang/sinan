@@ -3,7 +3,7 @@
     "item_recall": 85.71,
     "item_precision": 97.96,
     "due_accuracy": 97.92,
-    "change_accuracy": 50.0,
+    "change_accuracy": 75.0,
     "demoted_to_notice": 0.0
   }
 }
