@@ -38,6 +38,8 @@ The first draw is refused while any current label sits on an email outside every
 
 ### 5. The labeling page shows only the newest draw of each set
 
+Amended by ADR 0018 (2026-11-14): "newest draw" means the newest set version, which includes its `deadline_boost` supplement. A dev set version can grow by one supplement of 40 emails (decision 4 then gives 100 plus 40).
+
 The queue lists the dev set first, then the test set, each oldest first. Saving a label takes its set and set version from the draw; the request cannot choose either, and the set selector is gone. Corrections keep the old row's set and version, as before. Emails outside the newest draw answer 404, including the emails of an earlier dev draw.
 
 ## Consequences

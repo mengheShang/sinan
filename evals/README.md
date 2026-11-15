@@ -120,6 +120,27 @@ docker compose exec worker python -m apps.worker.sample --seed 20261112 --write
 
 The first command only shows what it would draw; `--write` records it. The draw is dev 100 and test 50, each half school and half personal mail, with 20% of each half from mail the prefilter skips. The same seed over the same mail gives the same draw. If a stratum has too little mail, nothing is drawn and the output names the shortfall. The test set is fixed once drawn; `--redraw-dev` draws a new dev set with the next set version. The output holds counts only. The labeling page then lists only the drawn emails, dev first.
 
+### Supplementary dev draw
+
+A random draw holds few deadlines, so the current dev set version can get one supplement of 40 emails likely to hold a deadline (Issue #78, ADR 0018):
+
+```bash
+docker compose exec worker python -m apps.worker.sample --seed 20261114 --boost-dev 40
+docker compose exec worker python -m apps.worker.sample --seed 20261114 --boost-dev 40 --write
+```
+
+An email is likely when its subject or body has one of the keywords in `app/db/boost.py` (`due`, `deadline`, `submit`, `exam`, `quiz`, `midterm`, `final`, `homework`, `assignment`, `project`, `register by`, `by <weekday>`, `no later than`), or its sender is on the local course-platform list `config/deadline_boost.toml` (git-ignored; copy `app/db/deadline_boost.example.toml`). Extraction results play no part. Only mail outside every earlier draw is drawn, with no school/personal split; a shortfall draws nothing. The picks join the current dev set version with stratum `deadline_boost`, so the labeling page lists them among the original dev emails, oldest first. The test set does not change. A second supplement for the same dev set version is refused.
+
+### Evaluating the real dev set
+
+The real dev set is read from the label table and run live only, since replies of real mail are never saved. Run it in a Worker container, which has the database, the API key and the local prefilter rules:
+
+```bash
+docker compose run --rm --no-deps -v ./evals:/srv/evals:ro worker python -m evals.run --set dev --live
+```
+
+The report adds `set_version` and `parts`: the same counts and metrics for `random` (the ADR 0012 draw) and `deadline_boost` (the supplement). The supplement overstates how often mail holds a deadline, so read precision and the notice share from `parts.random`.
+
 ## Running an evaluation
 
 The runner (`run.py`) sends every email in a set through the same path the Worker takes: the prefilter (the example rules in `app/extraction/prefilter.example.toml` unless `--rules` names another file), the prepared text, the model, and deterministic validation (`app/extraction/validate.py`). Emails go in order of `sent_at`, so a change comes after the item it changes. A prefilter skip counts as "no items found", so the metrics describe the whole pipeline.

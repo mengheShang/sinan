@@ -61,3 +61,4 @@ desktop.ini
 
 # Local prefilter rules hold real senders (ADR 0006)
 config/prefilter.toml
+config/deadline_boost.toml

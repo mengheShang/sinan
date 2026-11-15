@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     # Local prefilter rules with real senders; the example rules are used when
     # this file does not exist (ADR 0006)
     sinan_prefilter_rules: str = "config/prefilter.toml"
+    # Local course-platform senders for the supplementary dev draw; the
+    # fictional example list is used when this file does not exist (ADR 0018)
+    sinan_boost_senders: str = "config/deadline_boost.toml"
     # Digest days and displayed times use this zone; storage stays UTC (ADR 0008)
     sinan_timezone: str = "America/Los_Angeles"
     # Local hour after which the Worker makes the day's digest

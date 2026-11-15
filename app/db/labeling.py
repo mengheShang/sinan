@@ -11,7 +11,10 @@ nothing here logs.
 
 Only emails of the current draw are in the queue (Issue #41): the dev set
 first, then the test set. Within a set they are labeled oldest first, so the
-item an extension changes is usually labeled before the extension.
+item an extension changes is usually labeled before the extension. The
+current draw of a set is its newest set version, including the supplement
+of mail likely to hold a deadline (Issue #78), whose emails sit among the
+original dev draw in date order.
 """
 
 import uuid
@@ -71,8 +74,9 @@ def problems_of(err: ValidationError, prefix: str) -> list[Problem]:
 
 # ---- The queue ----
 #
-# The queue holds only emails of the newest draw of each set (Issue #41):
-# the dev set first, then the test set, each oldest first.
+# The queue holds only emails of the newest version of each set (Issue #41),
+# with its supplement (Issue #78): the dev set first, then the test set, each
+# oldest first.
 
 SET_RANK = {"dev": 0, "test": 1}
 

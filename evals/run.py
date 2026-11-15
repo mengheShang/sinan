@@ -12,6 +12,17 @@ run in CI.
 
     uv run python -m evals.run --set synthetic --live --save-replies new.json
 
+The real dev set (`--set dev`) is read from the label table and is live only:
+its replies come from real mail and are never recorded. The owner runs it in
+a Worker container, which has the database, the key and the local rules:
+
+    docker compose run --rm --no-deps -v ./evals:/srv/evals:ro worker \
+        python -m evals.run --set dev --live
+
+Its report adds `set_version` and `parts`: the same counts and metrics for
+the random dev draw and for the `deadline_boost` supplement alone (Issue #78,
+ADR 0018).
+
 The report goes to stdout, or to --out. It holds summary metrics only.
 """
 
@@ -19,22 +30,28 @@ import argparse
 import json
 import os
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy.orm import Session
+
 from app.config import Settings
+from app.db.session import get_engine
 from app.extraction.prefilter import EXAMPLE_RULES, Rules, load_rules
 from app.extraction.prompt import PROMPT, prepare
 from app.providers.anthropic_llm import AnthropicExtractor
 from app.providers.llm import Extractor
-from evals import dataset, replies
+from evals import dataset, real, replies
 from evals.dataset import Sample, SetError
 from evals.injection import InjectionCase, count_succeeded, load_cases
 from evals.runner import Reply, report, run
 
 HERE = Path(__file__).parent
+
+# Read from the label table, never from a file
+DEV = "dev"
 
 
 @dataclass(frozen=True)
@@ -83,13 +100,19 @@ def live_extractor(env: dict[str, str]) -> AnthropicExtractor:
     return AnthropicExtractor(key, settings.sinan_llm_model)
 
 
-def evaluate(name: str, samples: Sequence[Sample], rules: Rules, reply: Reply) -> dict[str, Any]:
+def evaluate(
+    name: str,
+    samples: Sequence[Sample],
+    rules: Rules,
+    reply: Reply,
+    parts: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
     outcomes = run(samples, rules, reply)
     model = "recorded"
     if isinstance(reply, LiveReply):
         model = reply.extractor.model
     mode = "recorded" if model == "recorded" else "live"
-    result = report(name, mode, model, outcomes)
+    result = report(name, mode, model, outcomes, parts)
     if samples and all(isinstance(s, InjectionCase) for s in samples):
         result["counts"]["injection_succeeded"] = count_succeeded(outcomes)
     return result
@@ -97,30 +120,62 @@ def evaluate(name: str, samples: Sequence[Sample], rules: Rules, reply: Reply) -
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="evals.run")
-    parser.add_argument("--set", choices=sorted(SETS), default="synthetic")
-    parser.add_argument("--rules", type=Path, default=EXAMPLE_RULES)
+    parser.add_argument("--set", choices=[*sorted(SETS), DEV], default="synthetic")
+    parser.add_argument(
+        "--rules",
+        type=Path,
+        help="prefilter rules; the example rules, or for dev the Worker's rules",
+    )
     parser.add_argument("--live", action="store_true", help="call the model (owner only)")
     parser.add_argument("--save-replies", type=Path, help="live mode: write the replies here")
     parser.add_argument("--out", type=Path, help="write the report here instead of stdout")
     return parser.parse_args(argv)
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    args = parse_args(sys.argv[1:] if argv is None else argv)
-    if args.save_replies and not args.live:
-        raise SetError("--save-replies only works with --live")
+def worker_rules(settings: Settings) -> Path:
+    """The rules the Worker loads: the local file, else the example rules."""
+    local = Path(settings.sinan_prefilter_rules)
+    return local if local.is_file() else EXAMPLE_RULES
+
+
+def evaluate_dev(args: argparse.Namespace) -> dict[str, Any]:
+    """The real dev set from the label table, live only, split into parts."""
+    if not args.live:
+        raise SetError("the dev set has no recorded replies; use --live")
+    if args.save_replies:
+        raise SetError("replies of real mail are never saved")
+    # Checked before reading any mail
+    reply = LiveReply(live_extractor(dict(os.environ)))
+    settings = Settings()
+    rules = load_rules(args.rules or worker_rules(settings))
+    with Session(get_engine()) as session:
+        found = real.load_dev(session)
+    result = evaluate(DEV, found.samples, rules, reply, found.parts)
+    result["set_version"] = found.set_version
+    return result
+
+
+def evaluate_file(args: argparse.Namespace) -> dict[str, Any]:
     files = SETS[args.set]
     samples = files.load()
-    rules = load_rules(args.rules)
+    rules = load_rules(args.rules or EXAMPLE_RULES)
     reply: Reply
     if args.live:
         reply = LiveReply(live_extractor(dict(os.environ)))
     else:
         reply = replies.Recorded(replies.load(files.replies))
     result = evaluate(args.set, samples, rules, reply)
-    text = json.dumps(result, indent=2) + "\n"
     if isinstance(reply, LiveReply) and args.save_replies:
         args.save_replies.write_text(replies.dump(reply.raw), encoding="utf-8")
+    return result
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(sys.argv[1:] if argv is None else argv)
+    if args.save_replies and not args.live:
+        raise SetError("--save-replies only works with --live")
+    result = evaluate_dev(args) if args.set == DEV else evaluate_file(args)
+    text = json.dumps(result, indent=2) + "\n"
     if args.out:
         args.out.write_text(text, encoding="utf-8")
     else:
