@@ -7,8 +7,8 @@
           "kind": "deadline",
           "course": "CS 000",
           "title": "Homework 3",
-          "evidence": "It is due Friday Nov 13 at 11:59pm PT.",
           "due_raw": "Friday Nov 13 at 11:59pm PT",
+          "evidence": "It is due Friday Nov 13 at 11:59pm PT.",
           "change_type": "create"
         }
       ]
@@ -18,9 +18,9 @@
         {
           "kind": "deadline",
           "course": "MATH 005",
-          "title": "MATH 005 midterm",
-          "evidence": "The midterm is on Thursday Nov 19 at 2:00pm PT in Hall B.",
+          "title": "Midterm exam covering chapters 1 to 6",
           "due_raw": "Thursday Nov 19 at 2:00pm PT",
+          "evidence": "The midterm is on Thursday Nov 19 at 2:00pm PT in Hall B.",
           "change_type": "create"
         }
       ]
@@ -30,9 +30,9 @@
         {
           "kind": "deadline",
           "course": "CS 000",
-          "title": "Lab 5",
-          "evidence": "Reminder: Lab 5 must be submitted by Wednesday Nov 4 at 5pm PT.",
+          "title": "Submit Lab 5",
           "due_raw": "Wednesday Nov 4 at 5pm PT",
+          "evidence": "Reminder: Lab 5 must be submitted by Wednesday Nov 4 at 5pm PT.",
           "change_type": "create"
         }
       ]
@@ -43,8 +43,8 @@
           "kind": "deadline",
           "course": "HIST 007",
           "title": "Essay 2",
-          "evidence": "Essay 2 is due Nov 20 at 11:59pm PT.",
           "due_raw": "Nov 20 at 11:59pm PT",
+          "evidence": "Essay 2 is due Nov 20 at 11:59pm PT.",
           "change_type": "create"
         }
       ]
@@ -55,8 +55,8 @@
           "kind": "deadline",
           "course": "CS 000",
           "title": "Homework 3",
-          "evidence": "Because of the outage, Homework 3 is now due Monday Nov 16 at 11:59pm PT.",
           "due_raw": "Monday Nov 16 at 11:59pm PT",
+          "evidence": "Because of the outage, Homework 3 is now due Monday Nov 16 at 11:59pm PT.",
           "change_type": "update"
         }
       ]
@@ -66,9 +66,9 @@
         {
           "kind": "deadline",
           "course": "MATH 005",
-          "title": "Midterm exam",
-          "evidence": "The midterm moves to Monday Nov 23 at 2:00pm PT, same room.",
+          "title": "Midterm exam moved to Monday Nov 23 at 2:00pm PT",
           "due_raw": "Monday Nov 23 at 2:00pm PT",
+          "evidence": "The midterm moves to Monday Nov 23 at 2:00pm PT, same room.",
           "change_type": "update"
         }
       ]
@@ -79,8 +79,8 @@
           "kind": "deadline",
           "course": "PHYS 003",
           "title": "Problem Set 4",
-          "evidence": "Due: Nov 12, 2026 11:59 PM PT",
           "due_raw": "Nov 12, 2026 11:59 PM PT",
+          "evidence": "Due: Nov 12, 2026 11:59 PM PT",
           "change_type": "create"
         }
       ]
@@ -88,11 +88,11 @@
     "syn-008": {
       "items": [
         {
-          "kind": "todo",
+          "kind": "deadline",
           "course": "CS 000",
-          "title": "Register project group",
-          "evidence": "Please form project groups of three and register your group on the course site by Friday Nov 6 at 11:59pm PT.",
+          "title": "Form project group of three and register on course site",
           "due_raw": "Friday Nov 6 at 11:59pm PT",
+          "evidence": "Please form project groups of three and register your group on the course site by Friday Nov 6 at 11:59pm PT.",
           "change_type": "create"
         }
       ]
@@ -102,21 +102,9 @@
         {
           "kind": "notice",
           "course": "CS 000",
-          "title": "Office hours this week",
+          "title": "CS 000 office hours Tuesday and Thursday 3-4pm Room 210",
+          "due_raw": null,
           "evidence": "Office hours this week are Tuesday and Thursday from 3 to 4pm in Room 210.",
-          "due_raw": null,
-          "change_type": "create"
-        }
-      ]
-    },
-    "syn-010": {
-      "items": [
-        {
-          "kind": "notice",
-          "course": null,
-          "title": "Department newsletter",
-          "evidence": "This month we welcome three new faculty members and celebrate the students who presented at the fall showcase.",
-          "due_raw": null,
           "change_type": "create"
         }
       ]
@@ -126,9 +114,9 @@
         {
           "kind": "deadline",
           "course": "HIST 007",
-          "title": "Essay 2",
-          "evidence": "Essay 2 is now due Nov 24 at 11:59pm PT.",
+          "title": "Essay 2 (extended)",
           "due_raw": "Nov 24 at 11:59pm PT",
+          "evidence": "Essay 2 is now due Nov 24 at 11:59pm PT.",
           "change_type": "update"
         }
       ]
@@ -139,8 +127,8 @@
           "kind": "deadline",
           "course": "MATH 005",
           "title": "Homework 7",
-          "evidence": "Homework 7 is due 11/18 at 11:59pm PT.",
           "due_raw": "11/18 at 11:59pm PT",
+          "evidence": "Homework 7 is due 11/18 at 11:59pm PT.",
           "change_type": "create"
         }
       ]
@@ -150,9 +138,9 @@
         {
           "kind": "notice",
           "course": null,
-          "title": "Review for the midterm",
-          "evidence": "Want to meet to review for the midterm?",
+          "title": "Optional study group to review for the midterm",
           "due_raw": null,
+          "evidence": "Want to meet to review for the midterm? I'm free most afternoons.",
           "change_type": "create"
         }
       ]
@@ -163,8 +151,8 @@
           "kind": "deadline",
           "course": "CS 000",
           "title": "Quiz 4",
-          "evidence": "Quiz 4 is due tonight at 11pm PT.",
           "due_raw": "tonight at 11pm PT",
+          "evidence": "Quiz 4 is due tonight at 11pm PT.",
           "change_type": "create"
         }
       ]
@@ -173,16 +161,25 @@
       "items": [
         {
           "kind": "deadline",
-          "course": "CS 000",
-          "title": "Lab 6",
+          "course": null,
+          "title": "Lab 6 code submission",
+          "due_raw": "Friday Nov 13",
           "evidence": "Lab 6 is due at midnight on Friday Nov 13.",
-          "due_raw": "at midnight on Friday Nov 13",
           "change_type": "create"
         }
       ]
     },
     "syn-016": {
-      "items": []
+      "items": [
+        {
+          "kind": "todo",
+          "course": null,
+          "title": "Read chapters 8 and 9",
+          "due_raw": null,
+          "evidence": "Please read chapters 8 and 9 when you get a chance; we will discuss them later in the term.",
+          "change_type": "create"
+        }
+      ]
     },
     "syn-017": {
       "items": [
@@ -190,8 +187,8 @@
           "kind": "deadline",
           "course": "CS 000",
           "title": "Final project proposal",
-          "evidence": "Final project proposals are due next Friday at 5pm PT.",
           "due_raw": "next Friday at 5pm PT",
+          "evidence": "Final project proposals are due next Friday at 5pm PT.",
           "change_type": "create"
         }
       ]
@@ -202,16 +199,16 @@
           "kind": "deadline",
           "course": "MATH 005",
           "title": "Problem Set 8",
-          "evidence": "Problem Set 8 is due Tuesday Nov 17 at 9am PT.",
           "due_raw": "Tuesday Nov 17 at 9am PT",
+          "evidence": "Problem Set 8 is due Tuesday Nov 17 at 9am PT.",
           "change_type": "create"
         },
         {
           "kind": "todo",
           "course": "MATH 005",
           "title": "Read Section 4.3",
-          "evidence": "please read Section 4.3",
           "due_raw": null,
+          "evidence": "please read Section 4.3; we will use it in lecture soon.",
           "change_type": "create"
         }
       ]
@@ -221,33 +218,9 @@
         {
           "kind": "deadline",
           "course": null,
-          "title": "Drop deadline without a W",
-          "evidence": "The deadline to drop a class without a W is Nov 13 at 5pm PT.",
+          "title": "Drop a class without a W",
           "due_raw": "Nov 13 at 5pm PT",
-          "change_type": "create"
-        }
-      ]
-    },
-    "syn-020": {
-      "items": [
-        {
-          "kind": "notice",
-          "course": null,
-          "title": "Course site maintenance Saturday",
-          "evidence": "The course site will be unavailable Saturday Nov 14 from 1am to 5am PT for maintenance.",
-          "due_raw": null,
-          "change_type": "create"
-        }
-      ]
-    },
-    "syn-021": {
-      "items": [
-        {
-          "kind": "notice",
-          "course": null,
-          "title": "Upload resume for review",
-          "evidence": "Upload your resume for review by Nov 11 at noon PT to get feedback before the career fair.",
-          "due_raw": "Nov 11 at noon PT",
+          "evidence": "The deadline to drop a class without a W is Nov 13 at 5pm PT.",
           "change_type": "create"
         }
       ]
@@ -258,8 +231,8 @@
           "kind": "deadline",
           "course": "CS 000",
           "title": "Homework 4",
-          "evidence": "Homework 4 is due Friday Nov 20 at 11:59pm PT.",
           "due_raw": "Friday Nov 20 at 11:59pm PT",
+          "evidence": "Homework 4 is due Friday Nov 20 at 11:59pm PT.",
           "change_type": "create"
         }
       ]
@@ -270,8 +243,8 @@
           "kind": "deadline",
           "course": "CS 010",
           "title": "Workshop paper",
-          "evidence": "Workshop papers are due Nov 25 at 11:59pm AoE.",
           "due_raw": "Nov 25 at 11:59pm AoE",
+          "evidence": "Workshop papers are due Nov 25 at 11:59pm AoE.",
           "change_type": "create"
         }
       ]
@@ -282,8 +255,8 @@
           "kind": "deadline",
           "course": "CS 010",
           "title": "Reading response 3",
+          "due_raw": "Wednesday Nov 18 at 10am ET",
           "evidence": "Reading response 3 is due Wednesday Nov 18 at 10am ET.",
-          "due_raw": "Wednesday Nov 18 at 10am",
           "change_type": "create"
         }
       ]
@@ -292,10 +265,10 @@
       "items": [
         {
           "kind": "notice",
-          "course": "HIST 007",
-          "title": "Essay 1 grades posted",
-          "evidence": "Grades for Essay 1 are now available on the course site.",
+          "course": null,
+          "title": "Grades posted for Essay 1",
           "due_raw": null,
+          "evidence": "Grades for Essay 1 are now available on the course site.",
           "change_type": "create"
         }
       ]
@@ -308,9 +281,9 @@
         {
           "kind": "deadline",
           "course": "PHYS 003",
-          "title": "Problem Set 4",
-          "evidence": "Problem Set 4 is now due Nov 15, 2026 11:59 PM PT.",
+          "title": "Problem Set 4 deadline extended",
           "due_raw": "Nov 15, 2026 11:59 PM PT",
+          "evidence": "Problem Set 4 is now due Nov 15, 2026 11:59 PM PT.",
           "change_type": "update"
         }
       ]
@@ -321,8 +294,8 @@
           "kind": "deadline",
           "course": "CS 000",
           "title": "Homework 3",
-          "evidence": "One more change: Homework 3 is now due Wednesday Nov 18 at 11:59pm PT.",
           "due_raw": "Wednesday Nov 18 at 11:59pm PT",
+          "evidence": "Homework 3 is now due Wednesday Nov 18 at 11:59pm PT.",
           "change_type": "update"
         }
       ]
@@ -334,10 +307,10 @@
       "items": [
         {
           "kind": "deadline",
-          "course": "CS 000",
+          "course": null,
           "title": "Lab 7",
-          "evidence": "Lab 7 is due Thursday Nov 19 at 5pm PT.",
           "due_raw": "Thursday Nov 19 at 5pm PT",
+          "evidence": "Lab 7 is due Thursday Nov 19 at 5pm PT.",
           "change_type": "create"
         }
       ]
@@ -348,8 +321,8 @@
           "kind": "deadline",
           "course": "MATH 005",
           "title": "Make-up final exam",
-          "evidence": "The make-up final exam is on Jan 8 at 9am PT in Hall B.",
           "due_raw": "Jan 8 at 9am PT",
+          "evidence": "The make-up final exam is on Jan 8 at 9am PT in Hall B.",
           "change_type": "create"
         }
       ]
@@ -359,9 +332,9 @@
         {
           "kind": "deadline",
           "course": "HIST 007",
-          "title": "Group presentation",
-          "evidence": "Your group presents on Dec 2.",
+          "title": "Prepare group presentation to go first",
           "due_raw": "Dec 2",
+          "evidence": "Your group presents on Dec 2.",
           "change_type": "create"
         }
       ]
@@ -370,10 +343,10 @@
       "items": [
         {
           "kind": "deadline",
-          "course": "CS 000",
+          "course": null,
           "title": "Lab 8",
-          "evidence": "Lab 8 is due Monday Nov 30 at 11:59pm.",
           "due_raw": "Monday Nov 30 at 11:59pm",
+          "evidence": "Lab 8 is due Monday Nov 30 at 11:59pm.",
           "change_type": "create"
         }
       ]
@@ -383,41 +356,9 @@
         {
           "kind": "deadline",
           "course": null,
-          "title": "Technical interview with Example Corp",
-          "evidence": "We'd like to invite you to a 45-minute technical interview on Tuesday Nov 17 at 1:00pm PT.",
-          "due_raw": "Tuesday Nov 17 at 1:00pm PT",
-          "change_type": "create"
-        },
-        {
-          "kind": "todo",
-          "course": null,
-          "title": "Confirm interview availability",
-          "evidence": "Please confirm your availability by Friday Nov 13 at 5pm PT.",
+          "title": "Confirm availability for Example Corp technical interview",
           "due_raw": "Friday Nov 13 at 5pm PT",
-          "change_type": "create"
-        }
-      ]
-    },
-    "syn-035": {
-      "items": [
-        {
-          "kind": "deadline",
-          "course": null,
-          "title": "Online assessment for Example Corp",
-          "evidence": "The assessment link expires Nov 16, 2026 at 11:59 PM ET.",
-          "due_raw": "Nov 16, 2026 at 11:59 PM ET",
-          "change_type": "create"
-        }
-      ]
-    },
-    "syn-036": {
-      "items": [
-        {
-          "kind": "deadline",
-          "course": null,
-          "title": "Pay November electricity bill",
-          "evidence": "Payment is due Nov 24 at 11:59pm PT.",
-          "due_raw": "Nov 24 at 11:59pm PT",
+          "evidence": "Please confirm your availability by Friday Nov 13 at 5pm PT.",
           "change_type": "create"
         }
       ]
@@ -427,9 +368,9 @@
         {
           "kind": "deadline",
           "course": null,
-          "title": "Pay December rent",
-          "evidence": "This is a reminder that December rent is due Dec 1 at 5pm PT.",
+          "title": "Pay December rent through the resident portal",
           "due_raw": "Dec 1 at 5pm PT",
+          "evidence": "This is a reminder that December rent is due Dec 1 at 5pm PT.",
           "change_type": "create"
         }
       ]
@@ -437,17 +378,14 @@
     "syn-038": {
       "items": []
     },
-    "syn-039": {
-      "items": []
-    },
     "syn-040": {
       "items": [
         {
           "kind": "deadline",
           "course": null,
-          "title": "Credit card minimum payment",
-          "evidence": "The minimum payment of $25.00 is due Nov 21 at 5pm ET.",
+          "title": "Pay minimum $25.00 credit card statement payment",
           "due_raw": "Nov 21 at 5pm ET",
+          "evidence": "The minimum payment of $25.00 is due Nov 21 at 5pm ET.",
           "change_type": "create"
         }
       ]
@@ -457,9 +395,9 @@
         {
           "kind": "deadline",
           "course": null,
-          "title": "Technical interview with Example Corp",
-          "evidence": "We need to move your technical interview to Thursday Nov 19 at 10:00am PT.",
+          "title": "Technical interview rescheduled to Thursday Nov 19 at 10:00am PT",
           "due_raw": "Thursday Nov 19 at 10:00am PT",
+          "evidence": "We need to move your technical interview to Thursday Nov 19 at 10:00am PT.",
           "change_type": "update"
         }
       ]
@@ -467,17 +405,14 @@
     "syn-042": {
       "items": []
     },
-    "syn-043": {
-      "items": []
-    },
     "syn-044": {
       "items": [
         {
-          "kind": "todo",
+          "kind": "deadline",
           "course": null,
-          "title": "Renew parking permit",
-          "evidence": "Your residential parking permit expires on 11/30.",
+          "title": "Renew residential parking permit online",
           "due_raw": "11/30",
+          "evidence": "Your residential parking permit expires on 11/30. Renew online before then to avoid a fine.",
           "change_type": "create"
         }
       ]
@@ -485,11 +420,11 @@
     "syn-045": {
       "items": [
         {
-          "kind": "todo",
+          "kind": "deadline",
           "course": null,
           "title": "Sign and return offer letter",
-          "evidence": "Please sign and return it by Nov 23 at 11:59pm CT.",
           "due_raw": "Nov 23 at 11:59pm CT",
+          "evidence": "Please sign and return it by Nov 23 at 11:59pm CT.",
           "change_type": "create"
         }
       ]
@@ -499,29 +434,17 @@
         {
           "kind": "deadline",
           "course": null,
-          "title": "Pay December rent",
-          "evidence": "Starting this month, December rent is due Dec 3 at 5pm PT instead of Dec 1.",
+          "title": "December rent payment",
           "due_raw": "Dec 3 at 5pm PT",
+          "evidence": "Starting this month, December rent is due Dec 3 at 5pm PT instead of Dec 1.",
           "change_type": "update"
         }
       ]
     },
     "syn-047": {
-      "items": [
-        {
-          "kind": "todo",
-          "course": null,
-          "title": "Send trip photos to Jordan",
-          "evidence": "Could you send me the photos from the trip by Sunday?",
-          "due_raw": "by Sunday",
-          "change_type": "create"
-        }
-      ]
-    },
-    "syn-048": {
       "items": []
     },
-    "syn-049": {
+    "syn-048": {
       "items": []
     },
     "syn-050": {
@@ -530,9 +453,9 @@
           "kind": "deadline",
           "course": "CS 000",
           "title": "Final project proposal",
-          "evidence": "To clear up the confusion: final project proposals are due Friday Nov 20 at 5pm PT.",
           "due_raw": "Friday Nov 20 at 5pm PT",
-          "change_type": "update"
+          "evidence": "To clear up the confusion: final project proposals are due Friday Nov 20 at 5pm PT.",
+          "change_type": "create"
         }
       ]
     },
@@ -541,9 +464,9 @@
         {
           "kind": "notice",
           "course": "MATH 005",
-          "title": "No class Thursday",
+          "title": "No class Thursday Nov 26 due to holiday",
+          "due_raw": "Thursday Nov 26",
           "evidence": "There is no class on Thursday Nov 26 because of the holiday.",
-          "due_raw": null,
           "change_type": "create"
         }
       ]
@@ -553,9 +476,9 @@
         {
           "kind": "notice",
           "course": null,
-          "title": "Resume workshop registration",
-          "evidence": "Interested students may register for the resume workshop by Friday Nov 20 at 5pm PT.",
+          "title": "Resume workshop registration (optional, seats limited)",
           "due_raw": "Friday Nov 20 at 5pm PT",
+          "evidence": "Interested students may register for the resume workshop by Friday Nov 20 at 5pm PT.",
           "change_type": "create"
         }
       ]
@@ -565,9 +488,9 @@
         {
           "kind": "notice",
           "course": null,
-          "title": "Storm expected Wednesday",
-          "evidence": "A strong storm is expected on Wednesday.",
+          "title": "Campus safety: storm expected Wednesday; check status page for closures",
           "due_raw": null,
+          "evidence": "A strong storm is expected on Wednesday.",
           "change_type": "create"
         }
       ]
@@ -577,9 +500,9 @@
         {
           "kind": "notice",
           "course": null,
-          "title": "Free flu shots at the health center",
-          "evidence": "Free flu shots are available at the student health center on weekdays from 9am to 4pm.",
+          "title": "Free flu shots available at student health center",
           "due_raw": null,
+          "evidence": "Free flu shots are available at the student health center on weekdays from 9am to 4pm.",
           "change_type": "create"
         }
       ]
@@ -587,11 +510,11 @@
     "syn-055": {
       "items": [
         {
-          "kind": "notice",
+          "kind": "deadline",
           "course": null,
-          "title": "Enrollment verification form",
-          "evidence": "All international students must submit the enrollment verification form by Monday Nov 30 at 5pm PT.",
+          "title": "Submit enrollment verification form",
           "due_raw": "Monday Nov 30 at 5pm PT",
+          "evidence": "All international students must submit the enrollment verification form by Monday Nov 30 at 5pm PT.",
           "change_type": "create"
         }
       ]
@@ -601,9 +524,9 @@
         {
           "kind": "notice",
           "course": "CS 000",
-          "title": "CS 000 forum daily digest",
-          "evidence": "There are 4 new posts in CS 000 since yesterday, including a pinned post about Homework 4.",
+          "title": "CS 000 forum digest: 4 new posts including pinned Homework 4 post",
           "due_raw": null,
+          "evidence": "There are 4 new posts in CS 000 since yesterday, including a pinned post about Homework 4.",
           "change_type": "create"
         }
       ]
@@ -613,9 +536,9 @@
         {
           "kind": "notice",
           "course": null,
-          "title": "Notebooks order shipped",
-          "evidence": "Your order of 2 notebooks has shipped and should arrive on Thursday.",
+          "title": "Order of 2 notebooks has shipped; arrives Thursday",
           "due_raw": null,
+          "evidence": "Good news! Your order of 2 notebooks has shipped and should arrive on Thursday.",
           "change_type": "create"
         }
       ]
@@ -625,9 +548,9 @@
         {
           "kind": "notice",
           "course": null,
-          "title": "Software Engineer Intern application declined",
-          "evidence": "we will not be moving forward with your application at this time.",
+          "title": "Software Engineer Intern application not moving forward",
           "due_raw": null,
+          "evidence": "After careful review, we will not be moving forward with your application at this time.",
           "change_type": "create"
         }
       ]
@@ -637,21 +560,9 @@
         {
           "kind": "deadline",
           "course": null,
-          "title": "Submit candidate information form",
+          "title": "Submit candidate information form for internship application",
+          "due_raw": "within 48 hours of this email",
           "evidence": "please submit the candidate information form within 48 hours of this email.",
-          "due_raw": "within 48 hours",
-          "change_type": "create"
-        }
-      ]
-    },
-    "syn-060": {
-      "items": [
-        {
-          "kind": "notice",
-          "course": null,
-          "title": "Department newsletter: resume workshop, robotics social, guest talk",
-          "evidence": "a resume workshop on Tuesday, a robotics club social on Wednesday, and a guest talk on machine learning on Thursday at 4pm.",
-          "due_raw": null,
           "change_type": "create"
         }
       ]
@@ -661,9 +572,9 @@
         {
           "kind": "notice",
           "course": null,
-          "title": "Optional course experience survey",
-          "evidence": "Complete the optional course experience survey by Friday Nov 20 at 11:59pm PT for a chance to win a gift card.",
+          "title": "Optional course experience survey; chance to win gift card",
           "due_raw": "Friday Nov 20 at 11:59pm PT",
+          "evidence": "Complete the optional course experience survey by Friday Nov 20 at 11:59pm PT for a chance to win a gift card.",
           "change_type": "create"
         }
       ]
@@ -677,16 +588,16 @@
           "kind": "deadline",
           "course": "BIO 004",
           "title": "Lab report 6",
-          "evidence": "Lab report 6 is due Friday Nov 20 at 11:59pm PT.",
           "due_raw": "Friday Nov 20 at 11:59pm PT",
+          "evidence": "Lab report 6 is due Friday Nov 20 at 11:59pm PT.",
           "change_type": "create"
         },
         {
           "kind": "deadline",
           "course": "BIO 004",
           "title": "Field trip worksheet",
-          "evidence": "The field trip worksheet is due Monday Nov 23 at 5pm PT.",
           "due_raw": "Monday Nov 23 at 5pm PT",
+          "evidence": "The field trip worksheet is due Monday Nov 23 at 5pm PT.",
           "change_type": "create"
         }
       ]
