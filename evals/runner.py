@@ -7,9 +7,14 @@ comes from changes: a recorded reply, or a live model call.
 Pure except for the `reply` callable it is given. The report holds counts and
 metrics only, never an email, a subject, a sender, an id or a per-email result
 (ADR 0009, decision 5).
+
+A report can also split the set into named parts, such as the random dev draw
+and its `deadline_boost` supplement (Issue #78). Each part gets the same counts
+and metrics, scored over its own emails after one run over the whole set, so
+a change in one part still links to an item in the other.
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -145,11 +150,32 @@ def count_data(outcomes: Sequence[Outcome], scores: Scores) -> dict[str, int]:
     }
 
 
-def report(set_name: str, mode: str, model: str, outcomes: Sequence[Outcome]) -> dict[str, Any]:
-    """Summary metrics and counts only."""
+def parts_data(
+    outcomes: Sequence[Outcome], emails: Sequence[Email], parts: Mapping[str, str]
+) -> dict[str, Any]:
+    """Counts and metrics per part. `parts` maps a sample id to its part name."""
+    found = {}
+    for name in sorted(set(parts.values())):
+        keep = [i for i, o in enumerate(outcomes) if parts.get(o.sample.id) == name]
+        part_outcomes = [outcomes[i] for i in keep]
+        part_emails = [emails[i] for i in keep]
+        scores = score(part_emails, context=emails)
+        counts = count_data(part_outcomes, scores)
+        found[name] = {"counts": counts, "metrics": scores_data(scores)}
+    return found
+
+
+def report(
+    set_name: str,
+    mode: str,
+    model: str,
+    outcomes: Sequence[Outcome],
+    parts: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Summary metrics and counts only, plus the same per part when given."""
     emails = to_emails(outcomes)
     scores = score(emails)
-    return {
+    result: dict[str, Any] = {
         "set": set_name,
         "mode": mode,
         "model": model,
@@ -157,3 +183,6 @@ def report(set_name: str, mode: str, model: str, outcomes: Sequence[Outcome]) ->
         "counts": count_data(outcomes, scores),
         "metrics": scores_data(scores),
     }
+    if parts:
+        result["parts"] = parts_data(outcomes, emails, parts)
+    return result

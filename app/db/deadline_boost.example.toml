@@ -1,0 +1,13 @@
+# Example course-platform senders for the supplementary dev draw (Issue #78,
+# ADR 0018). Every address and domain here is fictional.
+#
+# Put your real list in config/deadline_boost.toml, which git ignores. Copy
+# this file there and edit it. Never commit real addresses (CLAUDE.md, rule 2).
+#
+# Mail from these senders is a boost candidate even without a keyword.
+# Addresses are full addresses. A domain also covers its subdomains, so
+# "lms.example.edu" matches "notify.lms.example.edu".
+
+[senders]
+addresses = ["prof.rivera@example.edu"]
+domains = ["lms.example.edu", "grading.example.com"]

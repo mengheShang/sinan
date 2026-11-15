@@ -149,15 +149,26 @@ def demoted(label: ItemLabel, item: Found) -> bool:
     return label.kind in REQUIRED and item.kind == "notice"
 
 
-def score(emails: Sequence[Email]) -> Scores:
+def pairs_of(emails: Sequence[Email]) -> list[tuple[ItemLabel, Found]]:
     pairs = []
     for email in emails:
         pairs.extend(match_email(email))
+    return pairs
+
+
+def score(emails: Sequence[Email], context: Sequence[Email] | None = None) -> Scores:
+    """Scores of `emails`.
+
+    `context` is the whole run when `emails` is only part of it, so a change
+    in the part is checked against an item matched in any email of the run.
+    """
+    pairs = pairs_of(emails)
+    known = pairs if context is None else pairs_of(context)
     labeled = sum(len(e.labels) for e in emails)
     found = sum(len(e.found) for e in emails)
     matched = len(pairs)
     # Which labeled ref each matched found item stands for, to check links
-    ref_of = {item.uid: label.ref for label, item in pairs}
+    ref_of = {item.uid: label.ref for label, item in known}
     due_hits = sum(due_correct(label, item) for label, item in pairs)
     changes = [(label, item) for label, item in pairs if label.changes is not None]
     change_hits = sum(change_correct(label, item, ref_of) for label, item in changes)

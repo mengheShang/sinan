@@ -293,3 +293,57 @@ def found_one(sample_id: str, change: str, due_raw: str, linker: Linker) -> Foun
     sample = one_sample().model_copy(update={"id": sample_id})
     (found,) = found_of(Outcome(sample, False, checked), linker)
     return found
+
+
+# ---- Parts of a set (Issue #78) ----
+
+
+def split_report() -> tuple[dict[str, Any], dict[str, str]]:
+    """The synthetic set split in two parts, as the dev set and its supplement."""
+    files = SETS["synthetic"]
+    samples = dataset.load(files.samples)
+    reply = replies.Recorded(replies.load(files.replies))
+    names = ("random", "deadline_boost")
+    ids = sorted(s.id for s in samples)
+    parts = {sid: names[n % 2] for n, sid in enumerate(ids)}
+    return evaluate("synthetic", samples, rules(), reply, parts), parts
+
+
+def test_report_splits_the_parts_and_they_add_up() -> None:
+    result, parts = split_report()
+    whole = synthetic_report()
+    assert result["counts"] == whole["counts"]
+    assert result["metrics"] == whole["metrics"]
+    boost = result["parts"]["deadline_boost"]
+    rest = result["parts"]["random"]
+    assert set(result["parts"]) == {"deadline_boost", "random"}
+    assert boost["counts"]["emails"] == sum(1 for p in parts.values() if p == "deadline_boost")
+    for key in ("emails", "labeled_items", "found_items", "matched_items", "prefilter_skipped"):
+        assert boost["counts"][key] + rest["counts"][key] == whole["counts"][key]
+    for name in ("item_recall", "item_precision", "due_accuracy", "change_accuracy"):
+        hits = boost["metrics"][name]["hits"] + rest["metrics"][name]["hits"]
+        total = boost["metrics"][name]["total"] + rest["metrics"][name]["total"]
+        # A change in one part still links to its target in the other
+        assert (hits, total) == (whole["metrics"][name]["hits"], whole["metrics"][name]["total"])
+
+
+def test_split_report_holds_fixed_names_only() -> None:
+    result, _ = split_report()
+    text = json.dumps(result)
+    for sample in dataset.load(SETS["synthetic"].samples):
+        assert sample.id not in text
+        assert sample.input.subject not in text
+    whole = set(strings(synthetic_report()))
+    names = whole | {"parts", "random", "deadline_boost"}
+    assert set(strings(result)) <= names
+
+
+def test_report_without_parts_has_no_parts_key() -> None:
+    assert "parts" not in synthetic_report()
+
+
+def test_dev_set_is_live_only(tmp_path: Path) -> None:
+    with pytest.raises(SetError, match="use --live"):
+        main(["--set", "dev"])
+    with pytest.raises(SetError, match="never saved"):
+        main(["--set", "dev", "--live", "--save-replies", str(tmp_path / "r.json")])

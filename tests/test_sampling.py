@@ -11,12 +11,14 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Session
 
 from app.db import labeling, sampling
+from app.db.boost import Senders
 from app.db.label_format import Labels
 from app.db.labels import add, freeze
-from app.db.models import Account, AuditEvent, Message
+from app.db.models import Account, AuditEvent, EvalLabel, Message
 from app.db.sampling import Candidate, Pick
 from app.extraction.prefilter import Rules
 from apps.worker.sample import lines_of, short_lines
+from evals import real
 
 # A marker that must never show up in an audit event or the printed output
 MARKER = "Quokka-marker-5512"
@@ -304,3 +306,192 @@ def test_queue_shows_only_sampled_mail(session: Session) -> None:
     for message_id in unsampled:
         with pytest.raises(labeling.UnknownEmail):
             labeling.read_email(session, message_id)
+
+
+# ---- The supplementary dev draw (Issue #78) ----
+
+BOOST = sampling.Boost(Senders(), "example")
+NO_ITEMS = Labels.model_validate({"items": [], "safe_to_auto_read": True})
+
+
+def fill_likely(session: Session, n: int, offset: int = 5000) -> set[uuid.UUID]:
+    """`n` messages whose body names a due date, alternating roles."""
+    for i in range(n):
+        acct = existing(session, sampling.ROLES[i % 2])
+        body = f"Lab {i} is due Friday. {MARKER}"
+        message(session, acct, offset + i, bulk=i % 4 == 0, body=body)
+    session.flush()
+    names = [f"syn-{sampling.ROLES[i % 2]}-{offset + i}" for i in range(n)]
+    query = sa.select(Message.id).where(Message.provider_msg_id.in_(names))
+    return set(session.execute(query).scalars())
+
+
+def boost_run(session: Session, seed: int = 41, write: bool = True) -> sampling.Result:
+    return sampling.run(session, RULES, seed, "boost-dev", write, "example", BOOST)
+
+
+def picks_of(session: Session) -> list[AuditEvent]:
+    return events(session, sampling.PICK_EVENT)
+
+
+def test_boost_dry_run_repeats_and_records_nothing(session: Session) -> None:
+    fill(session, 70, 20)
+    run(session)
+    fill_likely(session, 50)
+    a = boost_run(session, seed=5, write=False)
+    b = boost_run(session, seed=5, write=False)
+    c = boost_run(session, seed=6, write=False)
+    assert a.picks == b.picks
+    assert {p.message_id for p in a.picks} != {p.message_id for p in c.picks}
+    assert len(events(session, sampling.DRAW_EVENT)) == 1
+    assert len(picks_of(session)) == 150
+
+
+def test_boost_joins_the_current_dev_version(session: Session) -> None:
+    fill(session, 70, 20)
+    run(session)
+    before = {e.subject_id: dict(e.data) for e in picks_of(session)}
+    likely = fill_likely(session, 50)
+    result = boost_run(session)
+    assert (result.version, result.sets) == (1, ("dev",))
+    new = [e for e in picks_of(session) if e.subject_id not in before]
+    assert len(new) == 40
+    assert {e.subject_id for e in new} <= likely
+    for e in new:
+        assert (e.data["eval_set"], e.data["set_version"]) == ("dev", 1)
+        assert e.data["stratum"] == sampling.BOOST
+        msg = session.get(Message, e.subject_id)
+        assert msg is not None
+        bulk = "List-Unsubscribe" in msg.headers
+        assert e.data["prefilter"] == ("skipped" if bulk else "passed")
+    # The earlier picks are unchanged, the test set with them
+    after = {e.subject_id: dict(e.data) for e in picks_of(session) if e.subject_id in before}
+    assert after == before
+    assert sampling.latest_versions(session) == {"dev": 1, "test": 1}
+    draws = events(session, sampling.DRAW_EVENT)
+    boosts = [d for d in draws if d.data.get("stratum") == sampling.BOOST]
+    assert len(boosts) == 1
+    assert boosts[0].data["sets"] == ["dev"]
+    assert boosts[0].data["senders"] == "example"
+    assert boosts[0].data["counts"] == result.counts()
+
+
+def test_boost_never_redraws_drawn_mail(session: Session) -> None:
+    fill(session, 70, 20)
+    # Every email names a deadline, the 150 in the first draw too
+    session.execute(sa.update(Message).values(body_text=f"Report due Friday. {MARKER}"))
+    run(session)
+    drawn = {e.subject_id for e in picks_of(session)}
+    # Only 30 undrawn emails remain: a shortfall, though all are likely
+    with pytest.raises(sampling.Short) as err:
+        boost_run(session)
+    (short,) = err.value.found
+    assert (short.needed, short.available) == (40, 30)
+    fill_likely(session, 10)
+    result = boost_run(session)
+    assert result.pool.drawn_before == 150
+    assert not {p.message_id for p in result.picks} & drawn
+
+
+def test_boost_shortfall_records_nothing(session: Session) -> None:
+    fill(session, 70, 20)
+    run(session)
+    fill_likely(session, 39)
+    with pytest.raises(sampling.Short):
+        boost_run(session)
+    assert len(picks_of(session)) == 150
+    assert len(events(session, sampling.DRAW_EVENT)) == 1
+
+
+def test_one_boost_per_dev_version(session: Session) -> None:
+    fill(session, 70, 20)
+    run(session)
+    fill_likely(session, 90)
+    boost_run(session)
+    for write in (True, False):
+        with pytest.raises(sampling.DrawError, match="already has its supplement"):
+            boost_run(session, seed=42, write=write)
+    # A new dev set version may get its own supplement, from undrawn mail only
+    fill(session, 50, 15, offset=1000)
+    run(session, seed=99, mode="redraw-dev")
+    fill_likely(session, 40, offset=8000)
+    drawn = {e.subject_id for e in picks_of(session)}
+    result = boost_run(session)
+    assert result.version == 2
+    assert not {p.message_id for p in result.picks} & drawn
+
+
+def test_boost_before_any_draw_is_refused(session: Session) -> None:
+    fill(session, 70, 20)
+    fill_likely(session, 50)
+    with pytest.raises(sampling.DrawError, match="nothing drawn yet"):
+        boost_run(session)
+
+
+def test_boost_output_holds_counts_only(session: Session) -> None:
+    fill(session, 70, 20)
+    run(session)
+    fill_likely(session, 50)
+    result = boost_run(session)
+    printed = "\n".join(lines_of(result, "example", "example"))
+    texts = [printed] + [repr(e.data) for e in session.execute(sa.select(AuditEvent)).scalars()]
+    for text in texts:
+        assert MARKER not in text
+        assert SUBJECT not in text
+        assert SENDER_DOMAIN not in text
+        assert "due Friday" not in text
+    assert "boost senders: example" in printed
+    assert f"stratum: {sampling.BOOST}" in printed
+    assert "dev: 40" in printed
+    assert f"available school/{sampling.BOOST}: 25" in printed
+    short = sampling.Short([sampling.Shortfall("any", sampling.BOOST, 40, 3)])
+    assert short_lines(short)[1] == f"  any/{sampling.BOOST}: need 40, have 3"
+
+
+def walk(session: Session) -> list[uuid.UUID]:
+    seen = []
+    current = labeling.first_id(session)
+    while current is not None:
+        seen.append(current)
+        current = labeling.first_id(session, after=labeling.position(session, current))
+    return seen
+
+
+def test_queue_lists_the_dev_draw_and_its_supplement(session: Session) -> None:
+    fill(session, 70, 20)
+    run(session)
+    fill_likely(session, 50)
+    boost_run(session)
+    counts = labeling.counts(session)
+    assert (counts.dev_total, counts.test_total, counts.remaining) == (140, 50, 190)
+    picked = {e.subject_id: e.data for e in picks_of(session)}
+    seen = walk(session)
+    assert set(seen) == set(picked)
+    sets = [picked[m]["eval_set"] for m in seen]
+    assert sets == ["dev"] * 140 + ["test"] * 50
+    boosted = [m for m in seen if picked[m]["stratum"] == sampling.BOOST]
+    assert len(boosted) == 40
+    # A supplement email is labeled into the dev set version it joined
+    label_id = labeling.save(session, boosted[0], NO_ITEMS, [])
+    row = session.get(EvalLabel, label_id)
+    assert row is not None
+    assert (row.eval_set, row.set_version) == ("dev", 1)
+
+
+def test_real_dev_set_splits_out_the_supplement(session: Session) -> None:
+    fill(session, 70, 20)
+    run(session)
+    fill_likely(session, 50)
+    boost_run(session)
+    picked = {e.subject_id: e.data for e in picks_of(session) if e.subject_id is not None}
+    dev = [m for m, d in picked.items() if d["eval_set"] == "dev"]
+    boosted = [m for m in dev if picked[m]["stratum"] == sampling.BOOST]
+    plain = [m for m in dev if picked[m]["stratum"] != sampling.BOOST]
+    test = [m for m, d in picked.items() if d["eval_set"] == "test"]
+    for message_id in boosted[:3] + plain[:2] + test[:1]:
+        labeling.save(session, message_id, NO_ITEMS, [])
+    found = real.load_dev(session)
+    assert found.set_version == 1
+    assert len(found.samples) == 5
+    assert Counter(found.parts.values()) == {real.BOOST: 3, real.RANDOM: 2}
+    assert set(found.parts) == {s.id for s in found.samples}

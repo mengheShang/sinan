@@ -143,10 +143,13 @@ def set_query(eval_set: str, set_version: int | None, as_of: datetime | None) ->
     return query.order_by(EvalLabel.created_at, EvalLabel.id)
 
 
+def sample_id(row_id: uuid.UUID, eval_set: str) -> str:
+    return f"{eval_set}-{row_id.hex}"
+
+
 def sample_of(row_id: uuid.UUID, eval_set: str, data: dict[str, Any]) -> Sample:
     """A stored row as an evaluation sample; the id is made from the row id."""
-    sample_id = f"{eval_set}-{row_id.hex}"
-    return Sample.model_validate({"id": sample_id, **data})
+    return Sample.model_validate({"id": sample_id(row_id, eval_set), **data})
 
 
 def load_set(
@@ -166,3 +169,13 @@ def load_set(
         data = {"input": row.snapshot, "labels": row.labels, "tags": row.tags}
         samples.append(sample_of(row.id, row.eval_set, data))
     return samples
+
+
+def sources(session: Session, eval_set: str, set_version: int) -> dict[str, uuid.UUID]:
+    """Sample id to source message id, for the current rows of one set version."""
+    query = select(EvalLabel.id, EvalLabel.source_message_id).where(
+        EvalLabel.eval_set == eval_set,
+        EvalLabel.set_version == set_version,
+        EvalLabel.retired_at.is_(None),
+    )
+    return {sample_id(row.id, eval_set): row.source_message_id for row in session.execute(query)}

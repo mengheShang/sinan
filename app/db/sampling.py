@@ -27,6 +27,13 @@ The test set is drawn once, with set version 1, and never again. The dev
 set can be redrawn: the new draw takes the next set version and only mail
 outside every earlier draw. Labels of an earlier dev draw keep their version.
 
+A dev set version can get one supplement of mail likely to hold a deadline
+(Issue #78, ADR 0018): 40 emails that match the keywords or senders of
+app/db/boost.py, with no role split, from mail outside every earlier draw.
+Its picks join the current dev set version with stratum `deadline_boost`,
+so the labeling queue lists them with the original draw and reports can
+split them out. The test set is never touched.
+
 Events and results hold ids, roles, strata and counts only, never content.
 """
 
@@ -41,6 +48,7 @@ from sqlalchemy import Integer, and_, false, func, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import Subquery
 
+from app.db import boost as likely
 from app.db import labels as store
 from app.db.label_format import Snapshot
 from app.db.models import AuditEvent, EvalLabel, Message
@@ -55,6 +63,9 @@ STRATA = ("passed", "skipped")
 SET_ORDER = ("test", "dev")
 SIZES = {"dev": 100, "test": 50}
 SKIPPED_SHARE = 0.2
+# The supplementary dev draw (Issue #78)
+BOOST_SIZE = 40
+BOOST = likely.STRATUM
 
 # Any fixed number: serializes draws, so two cannot interleave
 LOCK_KEY = 41_0041
@@ -88,6 +99,8 @@ class Candidate:
     id: uuid.UUID
     role: str
     stratum: str
+    # Matches the boost keywords or senders; only computed for a boost draw
+    likely: bool = False
 
 
 @dataclass
@@ -106,7 +119,13 @@ def stratum_of(snapshot: Snapshot, rules: Rules) -> str:
     return "skipped" if decision.action == "skip" else "passed"
 
 
-def pool(session: Session, rules: Rules, exclude: set[uuid.UUID]) -> Pool:
+def pool(
+    session: Session,
+    rules: Rules,
+    exclude: set[uuid.UUID],
+    senders: likely.Senders | None = None,
+) -> Pool:
+    """Candidates outside `exclude`. With `senders`, marks the likely ones."""
     found = Pool()
     ids = session.execute(select(Message.id).order_by(Message.id)).scalars()
     for message_id in ids:
@@ -119,7 +138,8 @@ def pool(session: Session, rules: Rules, exclude: set[uuid.UUID]) -> Pool:
             found.unlabelable += 1
             continue
         stratum = stratum_of(snapshot, rules)
-        found.candidates.append(Candidate(message_id, snapshot.role, stratum))
+        hit = senders is not None and likely.likely_deadline(snapshot, senders)
+        found.candidates.append(Candidate(message_id, snapshot.role, stratum, hit))
     return found
 
 
@@ -132,6 +152,8 @@ class Pick:
     eval_set: str
     role: str
     stratum: str
+    # Prefilter outcome of a boost pick, whose stratum is `deadline_boost`
+    prefilter: str | None = None
 
 
 @dataclass(frozen=True)
@@ -199,6 +221,31 @@ def draw(
     return picks
 
 
+def boost_order(ids: list[uuid.UUID], seed: int, version: int) -> list[uuid.UUID]:
+    # Its own generator name, so it never repeats the order of a role stratum
+    rng = random.Random(f"sinan-boost:{seed}:{version}")  # noqa: S311
+    order = sorted(ids)
+    rng.shuffle(order)
+    return order
+
+
+def draw_boost(candidates: list[Candidate], seed: int, version: int, size: int) -> list[Pick]:
+    """Pick `size` likely candidates for the dev set, with no role split.
+
+    Raises Short when fewer are available: nothing is drawn then.
+    """
+    hits = [c for c in candidates if c.likely]
+    if len(hits) < size:
+        raise Short([Shortfall("any", BOOST, size, len(hits))])
+    by_id = {c.id: c for c in hits}
+    order = boost_order(list(by_id), seed, version)
+    picks = []
+    for message_id in order[:size]:
+        c = by_id[message_id]
+        picks.append(Pick(message_id, "dev", c.role, BOOST, c.stratum))
+    return picks
+
+
 # ---- What is already drawn ----
 
 
@@ -214,6 +261,29 @@ def latest_versions(session: Session) -> dict[str, int]:
     return {name: top for name, top in session.execute(query)}
 
 
+def boosted(session: Session, eval_set: str, version: int) -> int:
+    """How many boost picks a set version already has."""
+    query = select(func.count()).where(
+        AuditEvent.event_type == PICK_EVENT,
+        AuditEvent.data["eval_set"].astext == eval_set,
+        AuditEvent.data["set_version"].astext.cast(Integer) == version,
+        AuditEvent.data["stratum"].astext == BOOST,
+    )
+    found: int = session.execute(query).scalar_one()
+    return found
+
+
+def strata(session: Session, eval_set: str, version: int) -> dict[uuid.UUID, str]:
+    """The stratum of each email in one set version: message id to stratum."""
+    stratum = AuditEvent.data["stratum"].astext
+    query = select(AuditEvent.subject_id, stratum).where(
+        AuditEvent.event_type == PICK_EVENT,
+        AuditEvent.data["eval_set"].astext == eval_set,
+        AuditEvent.data["set_version"].astext.cast(Integer) == version,
+    )
+    return {row[0]: row[1] for row in session.execute(query) if row[0] is not None}
+
+
 def drawn_ids(session: Session) -> set[uuid.UUID]:
     """Every email in any draw, current or earlier."""
     query = select(AuditEvent.subject_id).where(AuditEvent.event_type == PICK_EVENT)
@@ -221,7 +291,10 @@ def drawn_ids(session: Session) -> set[uuid.UUID]:
 
 
 def current(session: Session) -> Subquery:
-    """Emails of the newest draw of each set: message_id, eval_set, set_version."""
+    """Emails of the newest version of each set: message_id, eval_set, set_version.
+
+    A version's supplement shares its set version, so it is listed too.
+    """
     eval_set = AuditEvent.data["eval_set"].astext
     version = AuditEvent.data["set_version"].astext.cast(Integer)
     newest = [
@@ -250,6 +323,9 @@ def unsampled_labels(session: Session) -> int:
 # ---- Running a draw ----
 
 
+Mode = Literal["first", "redraw-dev", "boost-dev"]
+
+
 @dataclass(frozen=True)
 class Result:
     version: int
@@ -257,6 +333,7 @@ class Result:
     picks: list[Pick]
     pool: Pool
     written: bool
+    mode: Mode = "first"
 
     def counts(self) -> dict[str, dict[str, int]]:
         """Per set: emails per role and stratum, as "role/stratum"."""
@@ -268,11 +345,14 @@ class Result:
         return {name: dict(sorted(v.items())) for name, v in sorted(found.items())}
 
     def available(self) -> dict[str, int]:
-        have = Counter(f"{c.role}/{c.stratum}" for c in self.pool.candidates)
+        """Candidates per "role/stratum"; for a boost, the likely ones per role."""
+        found = self.pool.candidates
+        if self.mode == "boost-dev":
+            keys = [f"{c.role}/{BOOST}" for c in found if c.likely]
+        else:
+            keys = [f"{c.role}/{c.stratum}" for c in found]
+        have = Counter(keys)
         return dict(sorted(have.items()))
-
-
-Mode = Literal["first", "redraw-dev"]
 
 
 def plan(session: Session, mode: Mode) -> tuple[int, tuple[str, ...]]:
@@ -287,8 +367,32 @@ def plan(session: Session, mode: Mode) -> tuple[int, tuple[str, ...]]:
             )
         return 1, ("dev", "test")
     if "test" not in versions:
-        raise DrawError("nothing drawn yet; run without --redraw-dev first")
+        raise DrawError(f"nothing drawn yet; run without --{mode} first")
+    if mode == "boost-dev":
+        return boost_plan(session, versions), ("dev",)
     return versions.get("dev", 0) + 1, ("dev",)
+
+
+def boost_plan(session: Session, versions: dict[str, int]) -> int:
+    """The dev set version a supplement joins: the current one, once."""
+    version = versions.get("dev")
+    if version is None:
+        raise DrawError("no dev set drawn; use --redraw-dev first")
+    if boosted(session, "dev", version):
+        raise DrawError(
+            f"dev v{version} already has its supplement; "
+            "a new one comes only with a new dev set (--redraw-dev)"
+        )
+    return version
+
+
+@dataclass(frozen=True)
+class Boost:
+    """What a boost draw needs: the sender list, where it came from, the size."""
+
+    senders: likely.Senders
+    source: str
+    size: int = BOOST_SIZE
 
 
 def run(
@@ -298,8 +402,14 @@ def run(
     mode: Mode,
     write: bool,
     rules_source: str,
+    boost: Boost | None = None,
 ) -> Result:
-    """Draw, and record the draw when `write` is set. Does not commit."""
+    """Draw, and record the draw when `write` is set. Does not commit.
+
+    A "boost-dev" draw needs `boost`.
+    """
+    if mode == "boost-dev" and boost is None:
+        raise ValueError("a boost draw needs its sender list")
     # Held until the caller's transaction ends, so concurrent draws queue up
     session.execute(select(func.pg_advisory_xact_lock(LOCK_KEY)))
     version, sets = plan(session, mode)
@@ -310,16 +420,27 @@ def run(
                 f"{stale} current labels are on emails outside any draw; "
                 "decide what happens to them before the first draw"
             )
-    found = pool(session, rules, drawn_ids(session))
-    picks = draw(found.candidates, seed, version, sets)
-    result = Result(version, sets, picks, found, write)
+    senders = boost.senders if boost else None
+    found = pool(session, rules, drawn_ids(session), senders)
+    if boost is not None and mode == "boost-dev":
+        picks = draw_boost(found.candidates, seed, version, boost.size)
+    else:
+        picks = draw(found.candidates, seed, version, sets)
+    result = Result(version, sets, picks, found, write, mode)
     if write:
-        record(session, result, seed, rules_source)
+        source = boost.source if boost else None
+        record(session, result, seed, rules_source, source)
     return result
 
 
-def record(session: Session, result: Result, seed: int, rules_source: str) -> None:
-    data = {
+def record(
+    session: Session,
+    result: Result,
+    seed: int,
+    rules_source: str,
+    senders_source: str | None = None,
+) -> None:
+    data: dict[str, object] = {
         "set_version": result.version,
         "sets": list(result.sets),
         "seed": seed,
@@ -327,6 +448,9 @@ def record(session: Session, result: Result, seed: int, rules_source: str) -> No
         "counts": result.counts(),
         "available": result.available(),
     }
+    if result.mode == "boost-dev":
+        data["stratum"] = BOOST
+        data["senders"] = senders_source
     session.add(AuditEvent(event_type=DRAW_EVENT, actor="user", data=data))
     for p in result.picks:
         pick = {
@@ -335,6 +459,8 @@ def record(session: Session, result: Result, seed: int, rules_source: str) -> No
             "role": p.role,
             "stratum": p.stratum,
         }
+        if p.prefilter is not None:
+            pick["prefilter"] = p.prefilter
         event = AuditEvent(
             event_type=PICK_EVENT,
             actor="user",

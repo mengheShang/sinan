@@ -56,9 +56,15 @@ def add_message(session: Session, acct: Account, day: int, subject: str, body: s
     return msg.id
 
 
-def pick(session: Session, message_id: uuid.UUID, eval_set: str, version: int = 1) -> None:
+def pick(
+    session: Session,
+    message_id: uuid.UUID,
+    eval_set: str,
+    version: int = 1,
+    stratum: str = "passed",
+) -> None:
     """Record a draw of one email, as apps/worker/sample.py does."""
-    data = {"eval_set": eval_set, "set_version": version, "role": "school", "stratum": "passed"}
+    data = {"eval_set": eval_set, "set_version": version, "role": "school", "stratum": stratum}
     event = AuditEvent(
         event_type=sampling.PICK_EVENT,
         actor="user",
@@ -305,6 +311,27 @@ def test_only_the_newest_draw_is_queued(
     row = session.get(EvalLabel, uuid.UUID(saved["label_id"]))
     assert row is not None
     assert (row.eval_set, row.set_version) == ("dev", 2)
+
+
+def test_queue_lists_the_dev_draw_and_its_supplement(
+    client: TestClient, session: Session, mail: dict[str, uuid.UUID]
+) -> None:
+    # A deadline_boost pick joins dev v1 (Issue #78): both draws are listed
+    pick(session, mail["other"], "dev", stratum=sampling.BOOST)
+    session.commit()
+    data = client.get("/labeling").json()
+    assert data["counts"] == counts(dev_total=4, remaining=4)
+    # Oldest first across both draws: the supplement email is the oldest
+    assert data["first_id"] == str(mail["other"])
+    view = client.get(f"/labeling/emails/{mail['other']}").json()
+    assert view["eval_set"] == "dev"
+    assert view["next_id"] == str(mail["hw"])
+    for name in ("hw", "news", "ext"):
+        assert client.get(f"/labeling/emails/{mail[name]}").status_code == 200
+    saved = client.post(f"/labeling/emails/{mail['other']}/label", json=body()).json()
+    row = session.get(EvalLabel, uuid.UUID(saved["label_id"]))
+    assert row is not None
+    assert (row.eval_set, row.set_version) == ("dev", 1)
 
 
 def test_no_draw_means_an_empty_queue(client: TestClient, session: Session) -> None:
