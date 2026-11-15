@@ -1,4 +1,4 @@
-"""Prompt v2 and the email text the model sees. Pure functions only.
+"""Prompt v4 and the email text the model sees. Pure functions only.
 
 The prompt is versioned and hashed: `extraction_runs` stores the version and
 the SHA-256 of the template, never the full prompt. Change the text and the
@@ -10,13 +10,17 @@ sender and date are kept from the headers (M0 item 3).
 v2 adds the "notice" kind for optional and general mail (ADR 0017).
 v3 adds news about the student's own affairs (shipping, application
 decisions, grades) to notices, and names the confirmations to skip.
+v4 (owner, 2026-11-15, after the first real dev run): one notice per email
+with a summary title, several required items when an email holds several,
+optional sign-ups and events as notices rather than to-dos, and company
+promotions skipped.
 """
 
 import hashlib
 import re
 from datetime import datetime
 
-PROMPT_VERSION = "v3"
+PROMPT_VERSION = "v4"
 
 PROMPT = """You extract deadlines, to-dos and notices from one email for a university
 student.
@@ -38,17 +42,35 @@ whether a date appears:
 - News about the student's own affairs that asks for nothing is also a
   notice: a package shipped or delivered, a decision on an application
   (such as a rejection), or a grade posted.
+- Optional sign-ups, surveys, contests, RSVPs, volunteer requests, webinars
+  and events are notices, even when they give a date. Report a required
+  action only when the student personally must act: the email says they
+  must, or it concerns their own course work, application, account or
+  payment.
 - When you are unsure whether the student must act, treat it as required.
 
-Skip marketing and sales, receipts and confirmations of something the student
-just did (a payment, an order placed, a submission or an application
-received), sign-in codes, and casual personal messages that ask for nothing.
+How many items:
+- Report at most one notice per email. A digest, newsletter or roundup is a
+  single notice, even when it lists several posts or events; its title
+  summarizes the main topics, such as "CSCI 455 forum: office hours
+  cancelled; PA3 script question".
+- An email can hold several required actions, such as two assignments with
+  different due dates; report each one.
+- Do not add a notice that only repeats a required action from the same
+  email.
+
+Skip marketing and sales, promotions from companies (offers, card
+applications, contests a company runs), receipts and confirmations of
+something the student just did (a payment, an order placed, a submission or
+an application received), sign-in codes, and casual personal messages that
+ask for nothing.
 
 For each item:
 - kind: "notice" for a notice. For a required action, "deadline" when the
   email gives a due date or time, else "todo".
 - course: the course code as written, such as "CS 000", or null.
-- title: a short name for the task or notice, under 80 characters.
+- title: a short name for the task, or a short summary of the notice, under
+  80 characters.
 - evidence: one sentence or phrase copied exactly from the email body,
   character for character, that shows the item. Never paraphrase it, and
   never take it from the subject line.
