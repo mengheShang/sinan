@@ -7,12 +7,12 @@ from pydantic import SecretStr
 
 from app.config import Settings
 from app.crypto import TokenCipher
-from app.providers.anthropic_llm import AnthropicExtractor
+from app.providers.anthropic_llm import AnthropicExtractor, AnthropicLinkPicker
 from app.providers.demo_data import DEMO_EMAIL, DEMO_MESSAGES, DEMO_RESPONSES
-from app.providers.fakes import FakeExtractor, FakeMailReader
+from app.providers.fakes import FakeExtractor, FakeLinkPicker, FakeMailReader
 from app.providers.gmail import GmailReader
 from app.providers.google_oauth import GoogleOAuth
-from app.providers.llm import Extractor
+from app.providers.llm import Extractor, LinkPicker
 from app.providers.mail import MailReader
 
 
@@ -49,3 +49,14 @@ def extractor(settings: Settings) -> Extractor | None:
     if key is None:
         return None
     return AnthropicExtractor(key, settings.sinan_llm_model)
+
+
+def link_picker(settings: Settings) -> LinkPicker | None:
+    """The link step (ADR 0019): a fake that never links in demo mode; Claude
+    with the extraction model in live mode, or None without a key."""
+    if settings.sinan_mode == "demo":
+        return FakeLinkPicker()
+    key = settings.anthropic_api_key
+    if key is None:
+        return None
+    return AnthropicLinkPicker(key, settings.sinan_llm_model)

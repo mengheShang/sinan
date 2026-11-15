@@ -22,6 +22,7 @@ from app.providers.oauth import (
 )
 
 EMPTY_RESULT = '{"items": []}'
+NO_LINK = '{"target": null}'
 
 
 class FakeMailReader:
@@ -84,6 +85,27 @@ class FakeExtractor:
             if marker in text:
                 return result
         return EMPTY_RESULT
+
+
+class FakeLinkPicker:
+    """Returns canned link replies, picked by a marker found in the text.
+
+    With no marker found it answers "no link", so the demo never links a
+    change by the model.
+    """
+
+    model = "fake-link-picker"
+
+    def __init__(self, responses: dict[str, str] | None = None) -> None:
+        self._responses = responses or {}
+        self.calls: list[str] = []
+
+    def pick(self, prompt: str, text: str) -> str:
+        self.calls.append(text)
+        for marker, result in self._responses.items():
+            if marker in text:
+                return result
+        return NO_LINK
 
 
 class FakeOAuth:

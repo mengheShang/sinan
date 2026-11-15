@@ -16,6 +16,12 @@ candidates or none mean review. The rule here:
 - A candidate is an earlier, active item with an equal course and a similar
   title. Exactly one candidate is a high-confidence match.
 
+When there is not exactly one, extraction may ask the model to pick one
+(ADR 0019). `choices` builds the list it may pick from, in deterministic
+code and never from the model: the items with an equal course whose newest
+email is at most WINDOW older than the change, or whose due time is still
+ahead, newest first, at most MAX_CHOICES of them.
+
 The evaluation runner uses the same functions, so its change accuracy
 measures this rule.
 """
@@ -24,6 +30,7 @@ import re
 import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Literal
 
 # Same threshold as the evaluation's item matching (evals/README.md)
@@ -34,6 +41,11 @@ WORD = re.compile(r"[^\W_]+")
 
 Outcome = Literal["one", "several", "none"]
 
+# The model's choices for a change (ADR 0019): items seen this recently or
+# still ahead, at most this many
+WINDOW = timedelta(days=60)
+MAX_CHOICES = 15
+
 
 @dataclass(frozen=True)
 class Known[Key]:
@@ -42,6 +54,9 @@ class Known[Key]:
     key: Key
     course: str | None
     title: str
+    # The current due time, and the date of the newest email behind it
+    due_at: datetime | None = None
+    seen_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -107,3 +122,31 @@ def match[Key](course: str | None, title: str, pool: Sequence[Known[Key]]) -> Ma
     if found:
         return Match("several", None, len(found))
     return Match("none", None, 0)
+
+
+def is_recent[Key](known: Known[Key], sent_at: datetime) -> bool:
+    """Seen at most WINDOW before `sent_at`, or still due at or after it."""
+    if known.seen_at is not None and known.seen_at >= sent_at - WINDOW:
+        return True
+    return known.due_at is not None and known.due_at >= sent_at
+
+
+def newest_first[Key](known: Known[Key]) -> float:
+    if known.seen_at is None:
+        return 0.0
+    return -known.seen_at.timestamp()
+
+
+def choices[Key](
+    course: str | None, sent_at: datetime, pool: Sequence[Known[Key]]
+) -> list[Known[Key]]:
+    """The items the model may link a change to (ADR 0019).
+
+    An equal course, recent as of `sent_at` (the change email's date),
+    newest first, at most MAX_CHOICES. `pool` holds the active items from
+    other emails, as for `match`.
+    """
+    key = course_key(course)
+    same = [k for k in pool if course_key(k.course) == key and is_recent(k, sent_at)]
+    ordered = sorted(same, key=newest_first)
+    return ordered[:MAX_CHOICES]

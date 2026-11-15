@@ -14,7 +14,7 @@ from app.db.session import get_engine
 from app.extraction.prefilter import Rules
 from app.logredact import install_redaction
 from app.providers import factory
-from app.providers.llm import Extractor
+from app.providers.llm import Extractor, LinkPicker
 from apps.worker.digest_job import digest_today
 from apps.worker.extract_job import extract_all, load_prefilter
 from apps.worker.sync_job import ReaderFor, SessionFactory, build_readers, sync_all
@@ -32,12 +32,13 @@ def cycle(
     reader_for: ReaderFor,
     extractor: Extractor | None,
     rules: Rules,
+    picker: LinkPicker | None = None,
 ) -> None:
     """Sync, then extract, then the digest, so each step sees the one before."""
     sync_all(sessions, reader_for)
     cap = settings.sinan_extract_per_cycle
     ttl = settings.sinan_proposal_ttl_days
-    extract_all(sessions, extractor, rules, cap, ttl, settings.zone())
+    extract_all(sessions, extractor, rules, cap, ttl, settings.zone(), picker)
     digest_today(sessions, settings)
 
 
@@ -49,13 +50,14 @@ def main() -> None:
     # Fails at startup in live mode when the Google client or key is missing
     reader_for = build_readers(settings)
     extractor = factory.extractor(settings)
+    picker = factory.link_picker(settings)
     rules = load_prefilter(settings)
     scheduler = BlockingScheduler(timezone="UTC")
     scheduler.add_job(heartbeat, "interval", seconds=60, id="heartbeat")
     scheduler.add_job(
         cycle,
         "interval",
-        args=[sessions, settings, reader_for, extractor, rules],
+        args=[sessions, settings, reader_for, extractor, rules, picker],
         minutes=settings.sinan_sync_interval_minutes,
         id="sync",
         # Run once right away, then on the interval; never two runs at once

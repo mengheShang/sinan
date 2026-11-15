@@ -35,3 +35,21 @@ class Extractor(Protocol):
         content. Raises ExtractorError when the call fails.
         """
         ...
+
+
+class LinkPicker(Protocol):
+    """Picks which listed item a deadline change refers to (ADR 0019).
+
+    Same contract as Extractor: text in, raw JSON text out, no tools.
+    """
+
+    # Model name recorded in the audit
+    model: str
+
+    def pick(self, prompt: str, text: str) -> str:
+        """Return the model's raw JSON reply for one change.
+
+        `prompt` is the versioned link instructions, `text` the fenced email,
+        change and choices. Raises ExtractorError when the call fails.
+        """
+        ...

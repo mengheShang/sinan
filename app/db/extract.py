@@ -14,9 +14,11 @@ For each message that has never been extracted, under any prompt version:
    (the last is true only on a version an approved proposal appends).
 4. An item the model marks as an update, with a parsed due time, is matched
    to the item it changes (app/items/changes.py). One match becomes a
-   pending proposal instead of a new item; several matches or none save the
-   change as a new item marked needs_review. A notice is never matched
-   (ADR 0017).
+   pending proposal instead of a new item. With several matches or none,
+   the link picker, when given, asks the model once to pick from a list
+   built by deterministic code (ADR 0019); a pick also becomes only a
+   pending proposal. A change left without a target is saved as a new item
+   marked needs_review. A notice is never matched (ADR 0017).
 
 A message with a run under any prompt version is done, so a rerun skips it,
 and a new prompt version changes only how new mail is read (ADR 0016,
@@ -38,11 +40,17 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Account, AuditEvent, ExtractionRun, Item, ItemVersion, Message
 from app.extraction.deadlines import HOME
+from app.extraction.link_prompt import LINK_PROMPT_VERSION
+from app.extraction.link_reply import Code
 from app.extraction.prefilter import Envelope, Rules, decide
 from app.extraction.prompt import PROMPT, PROMPT_HASH, PROMPT_VERSION, prepare
 from app.extraction.validate import Checked, ValidItem, check, is_change
-from app.items.changes import Source, propose
-from app.providers.llm import Extractor, ExtractorError
+from app.items.changes import Link, Source, propose
+from app.items.linking import FAILED, NO_CHOICES
+from app.providers.llm import Extractor, ExtractorError, LinkPicker
+
+# Link replies refused by validation (app/extraction/link_reply.py)
+REFUSED: tuple[Code, ...] = ("bad_json", "bad_schema", "out_of_list")
 
 log = logging.getLogger("sinan.worker.extract")
 
@@ -60,6 +68,13 @@ class Counts:
     unchanged: int = 0
     stale: int = 0
     ambiguous: int = 0
+    # The link step (ADR 0019): model calls, picks, refused replies, failed
+    # calls, and proposals linked by the model
+    link_asked: int = 0
+    link_picked: int = 0
+    link_refused: int = 0
+    link_failed: int = 0
+    llm_proposals: int = 0
     # Set when a service error ended the cycle early
     stopped: str | None = None
     reasons: dict[str, int] = field(default_factory=dict)
@@ -76,6 +91,12 @@ class Counts:
             "unchanged": self.unchanged,
             "stale": self.stale,
             "ambiguous": self.ambiguous,
+            "link_prompt_version": LINK_PROMPT_VERSION,
+            "link_asked": self.link_asked,
+            "link_picked": self.link_picked,
+            "link_refused": self.link_refused,
+            "link_failed": self.link_failed,
+            "llm_proposals": self.llm_proposals,
             "stopped": self.stopped,
             "skip_reasons": dict(sorted(self.reasons.items())),
         }
@@ -166,15 +187,33 @@ class Context:
     now: datetime
     ttl_days: int
     home: tzinfo = HOME
+    picker: LinkPicker | None = None
+
+
+def count_link(link: Link, counts: Counts) -> None:
+    """Count the link step's outcome for the cycle's audit event."""
+    pick = link.pick
+    if pick is None or pick.code == NO_CHOICES:
+        return
+    counts.link_asked += 1
+    if pick.code == "picked":
+        counts.link_picked += 1
+    elif pick.code == FAILED:
+        counts.link_failed += 1
+    elif pick.code in REFUSED:
+        counts.link_refused += 1
 
 
 def save_change(
     session: Session, item: ValidItem, source: Source, ctx: Context, counts: Counts
 ) -> int:
     """Propose a change, or save it as an item. Returns the number of items saved."""
-    result = propose(session, item, source, ctx.now, ctx.ttl_days, ctx.home)
+    result, link = propose(session, item, source, ctx.now, ctx.ttl_days, ctx.home, ctx.picker)
+    count_link(link, counts)
     if result == "proposed":
         counts.proposals += 1
+        if link.path == "llm":
+            counts.llm_proposals += 1
         return 0
     if result == "unchanged":
         counts.unchanged += 1
@@ -228,6 +267,8 @@ class ChangePolicy:
     ttl_days: int
     clock: Clock
     home: tzinfo = HOME
+    # The link step (ADR 0019); None links by the deterministic matcher only
+    picker: LinkPicker | None = None
 
 
 def extract_one(
@@ -251,7 +292,8 @@ def extract_one(
         return
     ms = int((time.monotonic() - start) * 1000)
     checked = check(raw, msg.body_text or "", when, policy.home)
-    ctx = Context(extractor.model, ms, policy.clock(), policy.ttl_days, policy.home)
+    now = policy.clock()
+    ctx = Context(extractor.model, ms, now, policy.ttl_days, policy.home, policy.picker)
     counts.items += save_checked(session, msg, checked, ctx, counts)
     if checked.status == "ok":
         counts.extracted += 1
@@ -273,14 +315,17 @@ def extract_pending(
     ttl_days: int = 7,
     clock: Clock = utc_now,
     home: tzinfo = HOME,
+    picker: LinkPicker | None = None,
 ) -> Counts:
     """Process pending messages, sending at most `cap` to the model. Commits each one.
 
     `ttl_days` is SINAN_PROPOSAL_TTL_DAYS and `clock` gives the creation time,
-    both for proposals made from changes. `home` is SINAN_TIMEZONE.
+    both for proposals made from changes. `home` is SINAN_TIMEZONE. `picker`
+    is the link step (ADR 0019); a service error from it ends the cycle like
+    one from the extractor.
     """
     counts = Counts()
-    policy = ChangePolicy(ttl_days, clock, home)
+    policy = ChangePolicy(ttl_days, clock, home, picker)
     sent = 0
     for msg_id, role in pending(session):
         msg = session.get_one(Message, msg_id)

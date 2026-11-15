@@ -231,7 +231,13 @@ def test_creation_is_audited_with_ids_only(session: Session) -> None:
     item, proposal = posted_and_extended(session)
     (event,) = events(session, "proposal.")
     assert (event.event_type, event.subject_id) == ("proposal.created", proposal.id)
-    assert event.data == {"item_id": str(item.id), "to": "pending", "base_version": 1}
+    assert event.data == {
+        "item_id": str(item.id),
+        "to": "pending",
+        "base_version": 1,
+        "link": "deterministic",
+        "candidates": 1,
+    }
     (cycle,) = events(session, "extraction")
     assert cycle.data["proposals"] == 1
     assert "Homework" not in str(cycle.data)

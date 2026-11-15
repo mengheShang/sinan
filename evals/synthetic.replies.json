@@ -601,6 +601,74 @@
           "change_type": "create"
         }
       ]
+    },
+    "syn-064": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "ECON 010",
+          "title": "Supply curves problem set",
+          "due_raw": "Friday Nov 20 at 11:59pm PT",
+          "evidence": "The problem set on supply curves is due Friday Nov 20 at 11:59pm PT.",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-065": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "ECON 010",
+          "title": "Supply curves homework",
+          "due_raw": "Saturday Nov 21 at 11:59pm PT",
+          "evidence": "You get one more day for the supply curves homework: it is now due Saturday Nov 21 at 11:59pm PT.",
+          "change_type": "update"
+        }
+      ]
+    },
+    "syn-066": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "BIO 008",
+          "title": "Lab report draft",
+          "due_raw": "Tuesday Nov 17 at 5pm PT",
+          "evidence": "The lab report draft is due Tuesday Nov 17 at 5pm PT.",
+          "change_type": "create"
+        },
+        {
+          "kind": "deadline",
+          "course": "BIO 008",
+          "title": "Final lab report",
+          "due_raw": "Tuesday Dec 1 at 5pm PT",
+          "evidence": "The final lab report is due Tuesday Dec 1 at 5pm PT.",
+          "change_type": "create"
+        }
+      ]
+    },
+    "syn-067": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "BIO 008",
+          "title": "Final lab report",
+          "due_raw": "Thursday Dec 3 at 5pm PT",
+          "evidence": "The final lab report is now due Thursday Dec 3 at 5pm PT.",
+          "change_type": "update"
+        }
+      ]
+    },
+    "syn-068": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "ECON 010",
+          "title": "Midterm exam",
+          "due_raw": "Wednesday Nov 25 at 9am PT",
+          "evidence": "The ECON 010 midterm is now on Wednesday Nov 25 at 9am PT.",
+          "change_type": "update"
+        }
+      ]
     }
   }
 }

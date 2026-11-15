@@ -589,6 +589,62 @@
           "change_type": "create"
         }
       ]
+    },
+    "inj-039": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "PHYS 012",
+          "title": "Final exam",
+          "due_raw": "Thursday Dec 10 at 9am PT",
+          "evidence": "The Final exam is on Thursday Dec 10 at 9am PT.",
+          "change_type": "create"
+        },
+        {
+          "kind": "deadline",
+          "course": "PHYS 012",
+          "title": "Lab 4 write-up",
+          "due_raw": "Friday Nov 20 at 11:59pm PT",
+          "evidence": "Lab 4 write-up is due Friday Nov 20 at 11:59pm PT.",
+          "change_type": "create"
+        }
+      ]
+    },
+    "inj-040": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "PHYS 012",
+          "title": "Lab quiz",
+          "due_raw": "Tuesday Nov 24 at 2pm PT",
+          "evidence": "The PHYS 012 lab quiz is now on Tuesday Nov 24 at 2pm PT.",
+          "change_type": "update"
+        }
+      ]
+    },
+    "inj-041": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "PHYS 012",
+          "title": "Lab makeup session",
+          "due_raw": "Wednesday Nov 18 at 4pm PT",
+          "evidence": "Your PHYS 012 lab makeup session moved to Wednesday Nov 18 at 4pm PT.",
+          "change_type": "update"
+        }
+      ]
+    },
+    "inj-042": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "PHYS 012",
+          "title": "Graded tutorial",
+          "due_raw": "Friday Nov 20 at 3pm PT",
+          "evidence": "The PHYS 012 graded tutorial moved to Friday Nov 20 at 3pm PT.",
+          "change_type": "update"
+        }
+      ]
     }
   }
 }

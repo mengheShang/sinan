@@ -4,9 +4,15 @@ The path is the one the Worker takes (app/db/extract.py): the prefilter, the
 prepared text, the model, and deterministic validation. Only where the reply
 comes from changes: a recorded reply, or a live model call.
 
-Pure except for the `reply` callable it is given. The report holds counts and
-metrics only, never an email, a subject, a sender, an id or a per-email result
-(ADR 0009, decision 5).
+Pure except for the `reply` and `links` callables it is given. The report
+holds counts and metrics only, never an email, a subject, a sender, an id or
+a per-email result (ADR 0009, decision 5).
+
+Changes are linked twice over the same extraction replies: once by the
+deterministic matcher alone, and once with the link step (ADR 0019), which
+asks the model when the matcher finds no candidate or several. The headline
+`change_accuracy` is the second, the Worker's behavior; `linking` reports
+both and the link step's counts.
 
 A report can also split the set into named parts, such as the random dev draw
 and its `deadline_boost` supplement (Issue #78). Each part gets the same counts
@@ -15,18 +21,25 @@ a change in one part still links to an item in the other.
 """
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
+from app.extraction.link_prompt import LINK_PROMPT_VERSION
 from app.extraction.prefilter import Envelope, Rules, decide
-from app.extraction.prompt import PROMPT_VERSION
+from app.extraction.prompt import PROMPT_VERSION, prepare
 from app.extraction.validate import Checked, ValidItem, check, is_change
-from app.items.matching import Known, match
+from app.items.linking import FAILED, NO_CHOICES, ask
+from app.items.matching import Known, choices, match
 from evals.dataset import Sample
-from evals.metrics import Email, Found, Ratio, Scores, score
+from evals.metrics import Email, Found, Ratio, Scores, pairs_of, score
 
 # Gives the raw model reply for one sample that passed the prefilter
 Reply = Callable[[Sample], str]
+
+# Gives the raw link reply for one change: (found uid, link prompt, text)
+Links = Callable[[str, str, str], str]
+
+REFUSED = ("bad_json", "bad_schema", "out_of_list")
 
 
 @dataclass(frozen=True)
@@ -63,39 +76,97 @@ def run(samples: Sequence[Sample], rules: Rules, reply: Reply) -> list[Outcome]:
     return [process(sample, rules, reply) for sample in ordered]
 
 
+@dataclass
+class LinkCounts:
+    """The link step's outcomes over a run. Counts only."""
+
+    asked: int = 0
+    picked: int = 0
+    refused: int = 0
+    failed: int = 0
+
+
+def email_text(sample: Sample) -> str:
+    snap = sample.input
+    return prepare(snap.subject, snap.from_addr, snap.sent_at, snap.body_text)
+
+
+@dataclass
 class Linker:
     """Links each change to the earlier item it changes, as extraction does.
 
     Uses the production matcher (app/items/matching.py) over the items found
-    so far. An item stands for one tracked item; a change linked to it
-    becomes that item's newest found item, so the next change in a chain
-    links to it. An update the matcher cannot place is kept as a new item,
-    as extraction saves it.
+    so far, except notices, as extraction does. With `links`, the link step
+    (app/items/linking.py) asks for a pick when the matcher finds no
+    candidate or several. An item stands for one tracked item; a change
+    linked to it becomes that item's newest found item, with the change's
+    due time and email date, so the next change in a chain links to it. An
+    update left without a target is kept as a new item, as extraction saves
+    it.
     """
 
-    def __init__(self) -> None:
-        self.pool: list[Known[int]] = []
-        # Newest found uid of each tracked item, and the sample it came from
-        self.latest: list[str] = []
-        self.origin: list[str] = []
+    links: Links | None = None
+    counts: LinkCounts = field(default_factory=LinkCounts)
+    pool: dict[int, Known[int]] = field(default_factory=dict)
+    # Newest found uid of each tracked item, and the sample it came from
+    latest: list[str] = field(default_factory=list)
+    origin: list[str] = field(default_factory=list)
 
-    def add(self, uid: str, sample_id: str, item: ValidItem) -> None:
+    def add(self, uid: str, sample: Sample, item: ValidItem) -> None:
         key = len(self.latest)
-        self.pool.append(Known(key, item.course, item.title))
         self.latest.append(uid)
-        self.origin.append(sample_id)
+        self.origin.append(sample.id)
+        if item.kind == "notice":
+            return
+        sent = sample.input.sent_at
+        self.pool[key] = Known(key, item.course, item.title, item.due_at, sent)
 
-    def link(self, uid: str, sample_id: str, item: ValidItem) -> str | None:
+    def count(self, code: str) -> None:
+        if code == NO_CHOICES:
+            return
+        self.counts.asked += 1
+        if code == "picked":
+            self.counts.picked += 1
+        elif code == FAILED:
+            self.counts.failed += 1
+        elif code in REFUSED:
+            self.counts.refused += 1
+
+    def pick(
+        self, uid: str, sample: Sample, item: ValidItem, earlier: list[Known[int]]
+    ) -> int | None:
+        """The link step's pick among `earlier`, or None without `links`."""
+        if self.links is None:
+            return None
+        links = self.links
+        sent = sample.input.sent_at
+        options = choices(item.course, sent, earlier)
+
+        def call(prompt: str, text: str) -> str:
+            return links(uid, prompt, text)
+
+        picked = ask(call, email_text(sample), item, options)
+        self.count(picked.code)
+        return picked.target
+
+    def target_of(self, uid: str, sample: Sample, item: ValidItem) -> int | None:
+        earlier = [k for k in self.pool.values() if self.origin[k.key] != sample.id]
+        found = match(item.course, item.title, earlier)
+        if found.outcome == "one":
+            return found.target
+        return self.pick(uid, sample, item, earlier)
+
+    def link(self, uid: str, sample: Sample, item: ValidItem) -> str | None:
         """The uid this item changes, or None after adding it as a new item."""
-        if is_change(item):
-            earlier = [k for k in self.pool if self.origin[k.key] != sample_id]
-            found = match(item.course, item.title, earlier)
-            if found.target is not None:
-                target = self.latest[found.target]
-                self.latest[found.target] = uid
-                return target
-        self.add(uid, sample_id, item)
-        return None
+        key = self.target_of(uid, sample, item) if is_change(item) else None
+        if key is None:
+            self.add(uid, sample, item)
+            return None
+        target = self.latest[key]
+        self.latest[key] = uid
+        old = self.pool[key]
+        self.pool[key] = Known(key, old.course, old.title, item.due_at, sample.input.sent_at)
+        return target
 
 
 def found_of(outcome: Outcome, linker: Linker | None = None) -> list[Found]:
@@ -105,19 +176,23 @@ def found_of(outcome: Outcome, linker: Linker | None = None) -> list[Found]:
     if linker is None:
         linker = Linker()
     items: list[ValidItem] = outcome.checked.items
-    sample_id = outcome.sample.id
+    sample = outcome.sample
     found = []
     for n, item in enumerate(items):
-        uid = f"{sample_id}/{n}"
-        target = linker.link(uid, sample_id, item)
+        uid = f"{sample.id}/{n}"
+        target = linker.link(uid, sample, item)
         kept = Found(uid, item.course, item.title, item.due_at, item.status, target, item.kind)
         found.append(kept)
     return found
 
 
-def to_emails(outcomes: Sequence[Outcome]) -> list[Email]:
-    """Each email's labels and found items. Outcomes must be oldest first."""
-    linker = Linker()
+def to_emails(outcomes: Sequence[Outcome], linker: Linker | None = None) -> list[Email]:
+    """Each email's labels and found items. Outcomes must be oldest first.
+
+    Without a linker, changes are linked by the deterministic matcher only.
+    """
+    if linker is None:
+        linker = Linker()
     return [Email(o.sample.labels.items, found_of(o, linker)) for o in outcomes]
 
 
@@ -175,15 +250,69 @@ def parts_data(
     return found
 
 
+@dataclass(frozen=True)
+class Linked:
+    """Each email's found items, linked with the link step and without it."""
+
+    emails: list[Email]
+    plain: list[Email]
+    counts: LinkCounts
+    # Whether the link step was used at all
+    used: bool
+
+
+def link_all(outcomes: Sequence[Outcome], links: Links | None) -> Linked:
+    plain = to_emails(outcomes)
+    if links is None:
+        return Linked(plain, plain, LinkCounts(), False)
+    linker = Linker(links)
+    emails = to_emails(outcomes, linker)
+    return Linked(emails, plain, linker.counts, True)
+
+
+def spurious(emails: Sequence[Email]) -> int:
+    """Found items linked to an earlier item although their label is no change."""
+    pairs = pairs_of(emails)
+    return sum(1 for label, item in pairs if label.changes is None and item.target is not None)
+
+
+def linking_data(linked: Linked) -> dict[str, Any]:
+    """Change accuracy with and without the link step, and its counts."""
+    plain = score(linked.plain).change_accuracy
+    full = score(linked.emails).change_accuracy
+    counts = linked.counts
+    used = linked.used
+    return {
+        "link_prompt_version": LINK_PROMPT_VERSION if used else None,
+        "change_accuracy_without_llm": ratio_data(plain),
+        "change_accuracy_with_llm": ratio_data(full) if used else None,
+        "spurious_links_without_llm": spurious(linked.plain),
+        "spurious_links_with_llm": spurious(linked.emails) if used else None,
+        "asked": counts.asked,
+        "picked": counts.picked,
+        "refused": counts.refused,
+        "failed": counts.failed,
+    }
+
+
 def report(
     set_name: str,
     mode: str,
     model: str,
     outcomes: Sequence[Outcome],
     parts: Mapping[str, str] | None = None,
+    links: Links | None = None,
+    linked: Linked | None = None,
 ) -> dict[str, Any]:
-    """Summary metrics and counts only, plus the same per part when given."""
-    emails = to_emails(outcomes)
+    """Summary metrics and counts only, plus the same per part when given.
+
+    `links` gives the link step's replies; without it changes are linked by
+    the deterministic matcher only. `linked` is an earlier `link_all` of the
+    same outcomes, so the link step is not asked twice.
+    """
+    if linked is None:
+        linked = link_all(outcomes, links)
+    emails = linked.emails
     scores = score(emails)
     result: dict[str, Any] = {
         "set": set_name,
@@ -193,6 +322,7 @@ def report(
         "counts": count_data(outcomes, scores),
         "metrics": scores_data(scores),
         "email_groups": groups_data(scores),
+        "linking": linking_data(linked),
     }
     if parts:
         result["parts"] = parts_data(outcomes, emails, parts)
