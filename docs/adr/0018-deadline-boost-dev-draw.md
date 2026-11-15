@@ -1,6 +1,6 @@
 # ADR 0018: A supplementary dev draw of mail likely to hold deadlines
 
-- Status: Proposed
+- Status: Accepted (2026-11-15)
 - Date: 2026-11-14
 - Decider: Menghe
 - Amends: ADR 0012 (sampling the real sets), decisions 4 and 5
