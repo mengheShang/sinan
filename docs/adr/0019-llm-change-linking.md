@@ -1,6 +1,6 @@
 # ADR 0019: The model picks a deadline change's target when matching fails
 
-- Status: Proposed
+- Status: Accepted (2026-11-15)
 - Date: 2026-11-15
 - Decider: Menghe
 - Amends: ADR 0014 (deadline-change matching), decision 1
@@ -11,7 +11,7 @@ ADR 0014 links a deadline change (an extension, a new exam time) to the item it 
 
 Prompt v5 (PR #84) asks for the task's name only as the title, so the matcher succeeds more often. Wording can still differ ("supply curves problem set" against "supply curves homework"), and two similar items ("Lab report draft", "Final lab report") give several candidates.
 
-Issue #83 records the owner's choice of 2026-11-15: Option A, hybrid matching. This ADR writes down the rule and how it is built. Issue #54 (cross-checking due times with the model) follows the same pattern: the model suggests, deterministic code validates, and the owner confirms.
+Issue #83 records the owner's choice of 2026-11-15: Option A, hybrid matching. On PR #85 (2026-11-15) the owner accepted the window and cap, sending "several" to the model, the model and prompt version, and a new ADR as recommended, and decided that the Dashboard badge and the link in the payload belong in the same change (decisions 5 and 8). This ADR writes down the rule and how it is built. Issue #54 (cross-checking due times with the model) follows the same pattern: the model suggests, deterministic code validates, and the owner confirms.
 
 ## Decisions
 
@@ -47,7 +47,7 @@ When the list is empty, the model is not asked.
 
 A chosen item goes down the same path as a deterministic match (ADR 0014, decisions 2 to 5): the stale and unchanged checks, superseding, the carried time of day, and a **pending** `item_update` proposal. The owner approves every change, and approval recomputes `payload_hash` as before. A wrong pick costs one rejected proposal, never a silent edit. The model never creates or modifies grants, and the link step writes nothing outside the proposal path.
 
-The proposal payload does not change, so the hash and the Dashboard are unaffected.
+The `item_update` payload records how the item was chosen, as `link: "deterministic"` or `link: "llm"` (owner, PR #85). The link is covered by `payload_hash`, so the owner approves the link path together with the times and the evidence, and approval still checks the hash the Dashboard showed. A payload from before this ADR has no `link` and reads as `deterministic` (`app.proposals.link_of`); its stored hash is unchanged, so it approves as before. No migration is needed: `payload` is a JSON object.
 
 ### 6. Audit, with IDs and counts only
 
@@ -55,6 +55,10 @@ The proposal payload does not change, so the hash and the Dashboard are unaffect
 - The extraction cycle's event adds `link_prompt_version`, `link_asked`, `link_picked`, `link_refused`, `link_failed` and `llm_proposals`.
 
 No title, course, email text or reply text is recorded.
+
+### 8. The Dashboard marks a proposal the model linked (owner, PR #85)
+
+`GET /proposals` returns `link` for each proposal, read from the payload. A proposal with `link: "llm"` shows the badge **"Linked by the model, check it is the right item"** next to the target item's title, in a colour distinct from the "New due time proposed" flag. A deterministic link shows no badge.
 
 ### 7. Evaluation
 
@@ -65,6 +69,6 @@ No title, course, email text or reply text is recorded.
 ## Consequences
 
 - At most one extra model call per unlinked change, and none for changes the matcher places, for mail with no candidates, or for notices.
-- The owner sees a proposal linked by the model like any other until the Dashboard shows the path (an open question in Issue #83). The audit records it already.
+- The owner sees which proposals the model linked, on the proposal itself and in the audit, and can reject a wrong pick before anything changes.
 - The pick depends on titles the model wrote earlier. A poor title on the original item can still leave a change unlinked; it then stays a review item, as before.
 - A change can still be linked to the wrong item of the same course. The owner rejects it, and the next change can be linked again.
