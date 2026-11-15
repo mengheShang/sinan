@@ -37,6 +37,7 @@ These still need review: numeric dates (`numeric_date`), "midnight" (`midnight`)
 - If the same `due_raw` also gives a date, a weekday, "today"/"tomorrow" or a rule-3 phrase, it is two dates (`multiple_dates`). "Friday in two weeks" is therefore `multiple_dates`, where it was `relative_span` before rule 5.
 - "in a few days", "in a couple of weeks", "in several days", "soon" and other vague spans stay in review.
 - A time written next to the count is used: "in 2 weeks 5pm PT" is 17:00 PT on that day.
+- **Hours (owner, 2026-11-14).** "in N hours" and "within N hours" ("hrs" too) are the email's send time plus exactly N hours: "within 48 hours" in an email sent at 05:52:56 PDT is due 05:52:56 PDT two days later. The result is an exact instant, so no zone or time is assumed, and DST does not change it. The item records `date_computed`. Any date, day, time or zone in the same `due_raw` makes it `multiple_dates`; "in a few hours" stays in review.
 
 ## Implementation choices
 

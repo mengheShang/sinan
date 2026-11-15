@@ -631,6 +631,18 @@
           "change_type": "create"
         }
       ]
+    },
+    "syn-059": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": null,
+          "title": "Submit candidate information form",
+          "evidence": "please submit the candidate information form within 48 hours of this email.",
+          "due_raw": "within 48 hours",
+          "change_type": "create"
+        }
+      ]
     }
   }
 }
