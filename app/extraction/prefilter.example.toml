@@ -10,6 +10,9 @@
 #   4. Bulk headers (List-Unsubscribe, Precedence: bulk) skip.
 #   5. Everything else passes.
 #
+# [trust] (at the end) does not change what passes; it decides which items
+# may stay open (ADR 0010).
+#
 # Senders are full addresses. A domain also covers its subdomains, so
 # "example.edu" matches "mail.example.edu". Keywords match whole words or
 # phrases in the subject, ignoring case.
@@ -34,3 +37,26 @@ sensitive_keywords = [
   "student list",
   "academic integrity",
 ]
+
+[trust]
+# Sender trust (ADR 0010). A deadline or to-do stays open only when its
+# sender is trusted; any other goes to needs_review as untrusted_sender.
+# A sender is trusted when its address or domain is on the [allow] lists
+# above or on these lists, and Gmail authenticated that domain (a DMARC,
+# DKIM or SPF pass recorded in Authentication-Results). Subject keywords
+# never trust a sender, and nothing in the email body can.
+#
+# Your school domain, then recruiting, billing and rent platforms.
+senders = []
+domains = [
+  "example.edu",
+  "jobs.example.com",
+  "careers.example.net",
+  "assess.example.com",
+  "power.example.com",
+  "bank.example.com",
+  "apartments.example.com",
+]
+# false trusts a listed domain without Gmail's authentication results.
+# Leave it true: without it anyone can write a trusted From address.
+require_auth = true

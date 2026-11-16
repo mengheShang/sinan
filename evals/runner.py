@@ -1,7 +1,8 @@
 """Run each sample through the production pipeline and build a summary report.
 
 The path is the one the Worker takes (app/db/extract.py): the prefilter, the
-prepared text, the model, and deterministic validation. Only where the reply
+prepared text, the model, deterministic validation and sender trust (ADR
+0010). Only where the reply
 comes from changes: a recorded reply, or a live model call.
 
 Pure except for the `reply` and `links` callables it is given. The report
@@ -27,7 +28,8 @@ from typing import Any
 from app.extraction.link_prompt import LINK_PROMPT_VERSION
 from app.extraction.prefilter import Envelope, Rules, decide
 from app.extraction.prompt import PROMPT_VERSION, prepare
-from app.extraction.validate import Checked, ValidItem, check, is_change
+from app.extraction.trust import Trust, sender_trust
+from app.extraction.validate import UNTRUSTED, Checked, ValidItem, check, hold_untrusted, is_change
 from app.items.linking import FAILED, NO_CHOICES, ask
 from app.items.matching import Known, choices, match
 from evals.dataset import Sample
@@ -49,6 +51,8 @@ class Outcome:
     sample: Sample
     skipped: bool
     checked: Checked | None
+    # Sender trust, decided for every email, skipped or not
+    trust: Trust = Trust(True, "trusted")
 
 
 def envelope(sample: Sample) -> Envelope:
@@ -57,13 +61,16 @@ def envelope(sample: Sample) -> Envelope:
 
 
 def process(sample: Sample, rules: Rules, reply: Reply) -> Outcome:
-    decision = decide(envelope(sample), rules)
+    env = envelope(sample)
+    trust = sender_trust(env, rules)
+    decision = decide(env, rules)
     if decision.action == "skip":
-        return Outcome(sample, True, None)
+        return Outcome(sample, True, None, trust)
     raw = reply(sample)
     snap = sample.input
     checked = check(raw, snap.body_text, snap.sent_at)
-    return Outcome(sample, False, checked)
+    checked = hold_untrusted(checked, trust)
+    return Outcome(sample, False, checked, trust)
 
 
 def in_order(samples: Sequence[Sample]) -> list[Sample]:
@@ -295,6 +302,43 @@ def linking_data(linked: Linked) -> dict[str, Any]:
     }
 
 
+REQUIRED = ("deadline", "todo")
+
+
+def trust_role(outcomes: Sequence[Outcome], role: str) -> dict[str, Any]:
+    """Labeled required items of one account role, and how many are held."""
+    mine = [o for o in outcomes if o.sample.input.role == role]
+    required = 0
+    held = 0
+    for outcome in mine:
+        labels = [i for i in outcome.sample.labels.items if i.kind in REQUIRED]
+        required += len(labels)
+        if not outcome.trust.trusted:
+            held += len(labels)
+    share = Ratio(held, required)
+    return {"emails": len(mine), "required_items": required, "held": ratio_data(share)}
+
+
+def trust_data(outcomes: Sequence[Outcome]) -> dict[str, Any]:
+    """Sender trust over a run (ADR 0010). Counts only, never a sender.
+
+    `held` per role is the share of labeled required items whose email is
+    not trusted, so they would wait in needs_review as `untrusted_sender`:
+    the false-positive rate when the labels are real deadlines and to-dos.
+    """
+    reasons: dict[str, int] = {}
+    for outcome in outcomes:
+        code = outcome.trust.reason
+        reasons[code] = reasons.get(code, 0) + 1
+    found = [i for o in outcomes if o.checked for i in o.checked.items]
+    held = sum(1 for item in found if item.review == UNTRUSTED)
+    return {
+        "email_reasons": dict(sorted(reasons.items())),
+        "found_items_held": held,
+        "roles": {role: trust_role(outcomes, role) for role in ("school", "personal")},
+    }
+
+
 def report(
     set_name: str,
     mode: str,
@@ -323,6 +367,7 @@ def report(
         "metrics": scores_data(scores),
         "email_groups": groups_data(scores),
         "linking": linking_data(linked),
+        "sender_trust": trust_data(outcomes),
     }
     if parts:
         result["parts"] = parts_data(outcomes, emails, parts)

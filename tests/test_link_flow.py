@@ -20,6 +20,7 @@ from app.db.models import Account, AuditEvent, Item, ItemVersion, Message, Propo
 from app.extraction.link_prompt import LINK_PROMPT_HASH, LINK_PROMPT_VERSION
 from app.extraction.prefilter import Rules
 from app.proposals import payload_hash
+from app.providers.demo_data import gmail_auth
 from app.providers.fakes import FakeExtractor, FakeLinkPicker
 from app.providers.llm import ExtractorError
 
@@ -101,7 +102,7 @@ def mail(session: Session, body: str, hours: int) -> uuid.UUID:
         sent_at=when,
         from_addr="nakamura@example.edu",
         subject="ECON 010",
-        headers={},
+        headers={"Authentication-Results": gmail_auth("nakamura@example.edu")},
         label_ids=["INBOX"],
         body_text=body,
     )

@@ -36,6 +36,7 @@ from app.db.models import (
 from app.db.notice_dismiss import dismiss_all
 from app.extraction.prefilter import Rules
 from app.extraction.prompt import PROMPT_HASH, PROMPT_VERSION
+from app.providers.demo_data import gmail_auth
 from app.providers.fakes import FakeExtractor
 from apps.api.auth import COOKIE, get_auth
 from apps.api.clock import get_clock
@@ -101,7 +102,7 @@ def message(session: Session, body: str, when: datetime) -> Message:
         sent_at=when,
         from_addr="events@example.edu",
         subject="Fictional announcement",
-        headers={},
+        headers={"Authentication-Results": gmail_auth("events@example.edu")},
         label_ids=["INBOX"],
         body_text=body,
     )

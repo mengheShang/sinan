@@ -14,6 +14,9 @@ body. The rules (ADR 0006), checked in this order:
 
 A decision carries a fixed reason code, never the sender or the subject, so
 it is safe to store and log.
+
+The same file holds the sender trust rules of ADR 0010 in an optional
+`[trust]` section; app/extraction/trust.py applies them.
 """
 
 import re
@@ -48,7 +51,10 @@ SECTION_KEYS = {
     "allow": LIST_KEYS,
     "skip": LIST_KEYS,
     "school": ("sensitive_keywords",),
+    "trust": ("senders", "domains"),
 }
+# Keys of [trust] that are true or false, not lists
+TRUST_FLAGS = ("require_auth",)
 
 
 class RulesError(ValueError):
@@ -68,6 +74,10 @@ class Rules:
     skip: RuleSet = RuleSet()
     # Applied to school accounts only, before any allow rule
     sensitive_keywords: tuple[str, ...] = ()
+    # Senders and domains trusted on top of the allow rules (ADR 0010)
+    trust: RuleSet = RuleSet()
+    # Trust a matching sender only when Gmail authenticated its domain
+    require_auth: bool = True
 
 
 @dataclass(frozen=True)
@@ -188,10 +198,20 @@ def section_of(data: Mapping[str, Any], name: str) -> dict[str, list[str]]:
     if not isinstance(raw, dict):
         raise RulesError(f"[{name}] must be a table")
     allowed = SECTION_KEYS[name]
-    unknown = sorted(set(raw) - set(allowed))
+    flags = TRUST_FLAGS if name == "trust" else ()
+    unknown = sorted(set(raw) - set(allowed) - set(flags))
     if unknown:
         raise RulesError(f"unknown keys in [{name}]: {', '.join(unknown)}")
     return {key: clean_list(name, key, raw.get(key, [])) for key in allowed}
+
+
+def require_auth(data: Mapping[str, Any]) -> bool:
+    """[trust] require_auth, true when it is not set."""
+    raw = data.get("trust", {})
+    value = raw.get("require_auth", True) if isinstance(raw, dict) else True
+    if not isinstance(value, bool):
+        raise RulesError("trust.require_auth must be true or false")
+    return value
 
 
 def rule_set(values: dict[str, list[str]]) -> RuleSet:
@@ -211,7 +231,11 @@ def parse_rules(data: Mapping[str, Any]) -> Rules:
     allow = rule_set(section_of(data, "allow"))
     skip = rule_set(section_of(data, "skip"))
     school = section_of(data, "school")
-    return Rules(allow, skip, tuple(school["sensitive_keywords"]))
+    trusted = section_of(data, "trust")
+    # [trust] has no keywords: the subject is the sender's to choose
+    trust = rule_set({**trusted, "keywords": []})
+    sensitive = tuple(school["sensitive_keywords"])
+    return Rules(allow, skip, sensitive, trust, require_auth(data))
 
 
 def load_rules(path: Path) -> Rules:

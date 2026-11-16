@@ -31,7 +31,11 @@ a Worker container, which has the database, the key and the local rules:
 
 Its report adds `set_version` and `parts`: the same counts and metrics for
 the random dev draw and for the `deadline_boost` supplement alone (Issue #78,
-ADR 0018).
+ADR 0018). Its snapshots predate sender trust (ADR 0010), so the run reads
+each email's `Authentication-Results` again from Gmail with the Worker's
+read-only token, in memory only, and trusts the school accounts' domains as
+the Worker does. `sender_trust.auth_fetched` and `auth_missing` count how
+that went.
 
 The report goes to stdout, or to --out. It holds summary metrics only.
 """
@@ -49,10 +53,12 @@ from pydantic import SecretStr
 from sqlalchemy.orm import Session
 
 from app.config import Settings
+from app.db.extract import school_addresses
 from app.db.session import get_engine
 from app.extraction.link_prompt import LINK_PROMPT_VERSION
 from app.extraction.prefilter import EXAMPLE_RULES, Rules, load_rules
 from app.extraction.prompt import PROMPT, prepare
+from app.extraction.trust import with_school
 from app.providers.anthropic_llm import AnthropicExtractor, AnthropicLinkPicker
 from app.providers.llm import Extractor, LinkPicker
 from evals import dataset, real, replies
@@ -210,10 +216,19 @@ def evaluate_dev(args: argparse.Namespace) -> dict[str, Any]:
     links = LiveLinks(live_picker(env))
     settings = Settings()
     rules = load_rules(args.rules or worker_rules(settings))
+    # Imported here: the Worker's readers need the live OAuth settings
+    from apps.worker.sync_job import build_readers
+
     with Session(get_engine()) as session:
         found = real.load_dev(session)
-    result = evaluate(DEV, found.samples, rules, reply, found.parts, links)
+        rules = with_school(rules, school_addresses(session))
+        fetched = real.with_auth(session, found, build_readers(settings))
+        # A token refresh may flag an account; the Worker's sync records that
+        session.rollback()
+    result = evaluate(DEV, fetched.samples, rules, reply, found.parts, links)
     result["set_version"] = found.set_version
+    result["sender_trust"]["auth_fetched"] = fetched.fetched
+    result["sender_trust"]["auth_missing"] = fetched.missing
     return result
 
 
