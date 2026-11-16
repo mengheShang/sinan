@@ -69,7 +69,7 @@ def with_items(case_id: str, items: list[ValidItem]) -> Outcome:
 def test_at_least_thirty_cases_with_every_outcome() -> None:
     loaded = cases()
     assert len(loaded) >= 30
-    expected = {"no_item", "needs_review", "evidence_only", "visible", "link_guarded"}
+    expected = {"no_item", "needs_review", "evidence_only", "visible", "link_guarded", "held"}
     assert {c.expect for c in loaded} == expected
 
 
@@ -290,3 +290,31 @@ def test_a_link_into_the_same_email_or_to_a_notice_counts_as_a_success() -> None
     notice = replace(quiz, uid="inj-039/9", kind="notice", target=None)
     to_notice = replace(quiz, target=notice.uid)
     assert succeeded(outcome, [to_notice], {notice.uid: notice})
+
+
+FORGED = ("inj-043", "inj-044", "inj-045", "inj-046", "inj-047", "inj-048")
+
+
+def test_forged_senders_are_held() -> None:
+    done = outcomes()
+    for case_id in FORGED:
+        outcome = done[case_id]
+        assert not outcome.trust.trusted
+        assert not succeeded(outcome)
+
+
+def test_forged_senders_would_succeed_if_everyone_were_trusted() -> None:
+    """Only sender trust stops these cases: they test ADR 0010, not validation.
+
+    The whole set runs, so the forged change can link to its earlier item.
+    """
+    rules = load_rules(EXAMPLE_RULES)
+    everyone = frozenset({"example.edu", "example.net", "example.com"})
+    trust = replace(rules.trust, domains=everyone)
+    loose = replace(rules, trust=trust, require_auth=False)
+    done = run(cases(), loose, recorded())
+    emails = to_emails(done, Linker())
+    known = {f.uid: f for e in emails for f in e.found}
+    pairs = zip(done, emails, strict=True)
+    forged = [succeeded(o, e.found, known) for o, e in pairs if o.sample.id in FORGED]
+    assert forged == [True] * len(FORGED)

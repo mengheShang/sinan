@@ -19,6 +19,11 @@ For each message that has never been extracted, under any prompt version:
    built by deterministic code (ADR 0019); a pick also becomes only a
    pending proposal. A change left without a target is saved as a new item
    marked needs_review. A notice is never matched (ADR 0017).
+5. Sender trust (ADR 0010) is decided from the sender and Gmail's stored
+   authentication results, never the body. A deadline or to-do from an
+   untrusted sender is saved as needs_review (`untrusted_sender`), and a
+   change from one is never matched or proposed. Each version's `after`
+   records the trust reason code as `sender_trust`.
 
 A message with a run under any prompt version is done, so a rerun skips it,
 and a new prompt version changes only how new mail is read (ADR 0016,
@@ -44,7 +49,8 @@ from app.extraction.link_prompt import LINK_PROMPT_VERSION
 from app.extraction.link_reply import Code
 from app.extraction.prefilter import Envelope, Rules, decide
 from app.extraction.prompt import PROMPT, PROMPT_HASH, PROMPT_VERSION, prepare
-from app.extraction.validate import Checked, ValidItem, check, is_change
+from app.extraction.trust import Trust, sender_trust, with_school
+from app.extraction.validate import Checked, ValidItem, check, hold_untrusted, is_change
 from app.items.changes import Link, Source, propose
 from app.items.linking import FAILED, NO_CHOICES
 from app.providers.llm import Extractor, ExtractorError, LinkPicker
@@ -75,6 +81,8 @@ class Counts:
     link_refused: int = 0
     link_failed: int = 0
     llm_proposals: int = 0
+    # Emails sent to the model whose sender is not trusted (ADR 0010)
+    untrusted: int = 0
     # Set when a service error ended the cycle early
     stopped: str | None = None
     reasons: dict[str, int] = field(default_factory=dict)
@@ -97,6 +105,7 @@ class Counts:
             "link_refused": self.link_refused,
             "link_failed": self.link_failed,
             "llm_proposals": self.llm_proposals,
+            "untrusted": self.untrusted,
             "stopped": self.stopped,
             "skip_reasons": dict(sorted(self.reasons.items())),
         }
@@ -118,6 +127,12 @@ def pending(session: Session) -> list[tuple[uuid.UUID, str]]:
     )
     rows = session.execute(query).all()
     return [(row[0], row[1]) for row in rows]
+
+
+def school_addresses(session: Session) -> list[str]:
+    """Addresses of the connected school accounts, whose domains are trusted."""
+    query = select(Account.email).where(Account.role == "school")
+    return list(session.execute(query).scalars())
 
 
 def envelope(msg: Message, role: str) -> Envelope:
@@ -150,6 +165,7 @@ def after_fields(item: ValidItem) -> dict[str, object]:
         "time_assumed": item.time_assumed,
         "date_computed": item.date_computed,
         "time_carried": item.time_carried,
+        "sender_trust": item.sender_trust,
     }
 
 
@@ -277,6 +293,7 @@ def extract_one(
     extractor: Extractor,
     counts: Counts,
     policy: ChangePolicy,
+    trust: Trust,
 ) -> None:
     """Send one message to the model and save the outcome. May raise a service error."""
     when = sent_time(msg)
@@ -292,6 +309,9 @@ def extract_one(
         return
     ms = int((time.monotonic() - start) * 1000)
     checked = check(raw, msg.body_text or "", when, policy.home)
+    checked = hold_untrusted(checked, trust)
+    if not trust.trusted:
+        counts.untrusted += 1
     now = policy.clock()
     ctx = Context(extractor.model, ms, now, policy.ttl_days, policy.home, policy.picker)
     counts.items += save_checked(session, msg, checked, ctx, counts)
@@ -326,10 +346,12 @@ def extract_pending(
     """
     counts = Counts()
     policy = ChangePolicy(ttl_days, clock, home, picker)
+    rules = with_school(rules, school_addresses(session))
     sent = 0
     for msg_id, role in pending(session):
         msg = session.get_one(Message, msg_id)
-        decision = decide(envelope(msg, role), rules)
+        env = envelope(msg, role)
+        decision = decide(env, rules)
         if decision.action == "skip":
             skip(session, msg, decision.reason, counts)
             session.commit()
@@ -339,7 +361,7 @@ def extract_pending(
             continue
         sent += 1
         try:
-            extract_one(session, msg, extractor, counts, policy)
+            extract_one(session, msg, extractor, counts, policy, sender_trust(env, rules))
         except ExtractorError as err:
             session.rollback()
             counts.stopped = err.code

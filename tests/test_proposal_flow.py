@@ -25,6 +25,7 @@ from app.db.item_status import set_status
 from app.db.models import Account, AuditEvent, Item, ItemVersion, Message, Proposal
 from app.extraction.prefilter import Rules
 from app.proposals import payload_hash
+from app.providers.demo_data import gmail_auth
 from app.providers.fakes import FakeExtractor, FakeLinkPicker
 from apps.api.auth import COOKIE, get_auth
 from apps.api.clock import get_clock
@@ -101,7 +102,7 @@ def mail(session: Session, body: str, hours: int) -> uuid.UUID:
         sent_at=when,
         from_addr="rivera@example.edu",
         subject="CS 000: Homework 3",
-        headers={},
+        headers={"Authentication-Results": gmail_auth("rivera@example.edu")},
         label_ids=["INBOX"],
         body_text=body,
     )

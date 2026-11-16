@@ -11,6 +11,7 @@ import pytest
 from app.extraction.link_prompt import LINK_PROMPT_VERSION
 from app.extraction.prefilter import EXAMPLE_RULES, Rules, decide, load_rules
 from app.extraction.prompt import PROMPT_VERSION
+from app.extraction.trust import REASONS as TRUST_REASONS
 from app.extraction.validate import check
 from evals import dataset, replies
 from evals.dataset import Sample, SetError
@@ -172,6 +173,15 @@ def test_report_holds_fixed_names_only() -> None:
         "refused",
         "failed",
         LINK_PROMPT_VERSION,
+        "sender_trust",
+        "email_reasons",
+        "found_items_held",
+        "roles",
+        "school",
+        "personal",
+        "required_items",
+        "held",
+        *TRUST_REASONS,
     }
     result = synthetic_report()
     assert set(strings(result)) <= allowed

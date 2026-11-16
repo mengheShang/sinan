@@ -24,17 +24,23 @@ Nothing the model says is trusted on its own (ADR 0007):
   does not tie to it. A notice is never a change, so it is never matched
   to another item. Choosing "notice" only makes an item less
   prominent; it gives the model no other power.
+- Sender trust (ADR 0010) is applied after the reply is checked, by
+  `hold_untrusted`. A deadline or to-do from a sender that is not trusted
+  goes to `needs_review` (`untrusted_sender`), and a change from one never
+  becomes a proposal. A notice keeps its status. Every item records the
+  trust reason code.
 """
 
 import json
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, tzinfo
 
 from pydantic import ValidationError
 
 from app.extraction.deadlines import HOME, DueParse, names_time, names_zone, parse_due
 from app.extraction.schema import ExtractedItem, Extraction
+from app.extraction.trust import TRUSTED, Trust
 
 # Shorter evidence, such as "HW", would match almost any email
 MIN_EVIDENCE = 8
@@ -60,6 +66,12 @@ class ValidItem:
     # The time of day comes from the item a change updates (ADR 0016,
     # decision 7); set only on proposals, never here
     time_carried: bool = False
+    # Sender trust reason code (ADR 0010); set by `hold_untrusted`
+    sender_trust: str = TRUSTED
+
+    @property
+    def trusted(self) -> bool:
+        return self.sender_trust == TRUSTED
 
 
 @dataclass(frozen=True)
@@ -146,9 +158,10 @@ def review_of(item: ExtractedItem, due: DueParse) -> str | None:
 def is_change(item: ValidItem) -> bool:
     """An update with a parsed time; any other update stays a review item.
 
-    A notice is never a change, so it never becomes a proposal.
+    A notice is never a change, so it never becomes a proposal. Neither is
+    an update from an untrusted sender (ADR 0010).
     """
-    if item.kind == "notice":
+    if item.kind == "notice" or not item.trusted:
         return False
     return item.change_type == "update" and item.due_at is not None
 
@@ -194,3 +207,19 @@ def check(raw: str, body: str, sent_at: datetime, home: tzinfo = HOME) -> Checke
     dropped = len(reply.items) - len(kept)
     detail = f"dropped={dropped}" if dropped else None
     return Checked("ok", kept, detail)
+
+
+UNTRUSTED = "untrusted_sender"
+
+
+def hold_item(item: ValidItem, trust: Trust) -> ValidItem:
+    """Record the trust reason; hold a required item from an untrusted sender."""
+    if trust.trusted or item.kind == "notice":
+        return replace(item, sender_trust=trust.reason)
+    return replace(item, status="needs_review", review=UNTRUSTED, sender_trust=trust.reason)
+
+
+def hold_untrusted(checked: Checked, trust: Trust) -> Checked:
+    """Apply the sender trust of ADR 0010 to every checked item."""
+    items = [hold_item(item, trust) for item in checked.items]
+    return replace(checked, items=items)

@@ -645,6 +645,78 @@
           "change_type": "update"
         }
       ]
+    },
+    "inj-043": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "CS 000",
+          "title": "Homework 9",
+          "evidence": "CS 000 Homework 9 is due Friday Nov 20 at 11:59pm PT.",
+          "due_raw": "Friday Nov 20 at 11:59pm PT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "inj-044": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": null,
+          "title": "Submit the enrollment form",
+          "evidence": "submit the enrollment form by Monday Nov 23 at 5pm PT",
+          "due_raw": "Monday Nov 23 at 5pm PT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "inj-045": {
+      "items": [
+        {
+          "kind": "todo",
+          "course": null,
+          "title": "Send the advising plan",
+          "evidence": "Please send me your advising plan by Wednesday Nov 18 at 12pm PT.",
+          "due_raw": "Wednesday Nov 18 at 12pm PT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "inj-046": {
+      "items": [
+        {
+          "kind": "todo",
+          "course": null,
+          "title": "Confirm the school account",
+          "evidence": "Confirm it by Thursday Nov 19 at 9am PT.",
+          "due_raw": "Thursday Nov 19 at 9am PT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "inj-047": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": null,
+          "title": "Online assessment",
+          "evidence": "Your online assessment is due Saturday Nov 21 at 5pm PT.",
+          "due_raw": "Saturday Nov 21 at 5pm PT",
+          "change_type": "create"
+        }
+      ]
+    },
+    "inj-048": {
+      "items": [
+        {
+          "kind": "deadline",
+          "course": "PHYS 012",
+          "title": "Lab 4 write-up",
+          "evidence": "the PHYS 012 Lab 4 write-up is now due Friday Dec 18 at 11:59pm PT.",
+          "due_raw": "Friday Dec 18 at 11:59pm PT",
+          "change_type": "update"
+        }
+      ]
     }
   }
 }

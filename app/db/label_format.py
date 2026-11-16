@@ -21,8 +21,9 @@ from pydantic import (
     model_validator,
 )
 
-# The only headers a snapshot keeps: the ones the prefilter's bulk check reads
-HEADER_NAMES = frozenset({"List-Unsubscribe", "Precedence"})
+# The only headers a snapshot keeps: the ones the prefilter's bulk check
+# reads, and Gmail's authentication results for sender trust (ADR 0010)
+HEADER_NAMES = frozenset({"List-Unsubscribe", "Precedence", "Authentication-Results"})
 
 MAX_ITEMS = 20
 KEY_PATTERN = r"^[a-z0-9][a-z0-9-]{0,63}$"
@@ -59,7 +60,7 @@ class Snapshot(Strict):
         if not isinstance(value, dict):
             raise ValueError("must be an object")
         if not set(value) <= HEADER_NAMES:
-            raise ValueError("only List-Unsubscribe and Precedence are kept")
+            raise ValueError("only the headers in HEADER_NAMES are kept")
         return value
 
 

@@ -15,7 +15,9 @@ from typing import Any
 
 from app.providers.mail import MailMessage
 
-# Headers the prefilter and extraction may need; everything else is dropped
+# Headers the prefilter, extraction and sender trust may need; everything
+# else is dropped. Only the first of each is kept: for Authentication-Results
+# that is the one Gmail adds above the sender's own headers (ADR 0010).
 KEPT_HEADERS = (
     "From",
     "To",
@@ -28,8 +30,12 @@ KEPT_HEADERS = (
     "List-Unsubscribe",
     "Precedence",
     "Auto-Submitted",
+    "Authentication-Results",
 )
 MAX_HEADER = 1000
+# Gmail's results name every check with comments and run longer
+MAX_LONG_HEADER = 4000
+LONG_HEADERS = frozenset({"Authentication-Results"})
 MAX_BODY = 100_000
 
 # Labels that mean the message is not incoming mail worth reading
@@ -55,7 +61,8 @@ def header_map(payload: dict[str, Any]) -> dict[str, str]:
         canonical = kept.get(name.lower())
         if canonical is None or canonical in out:
             continue
-        out[canonical] = str(item.get("value", ""))[:MAX_HEADER]
+        limit = MAX_LONG_HEADER if canonical in LONG_HEADERS else MAX_HEADER
+        out[canonical] = str(item.get("value", ""))[:limit]
     return out
 
 

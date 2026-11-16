@@ -24,7 +24,7 @@ from app.db.models import (
 )
 from app.extraction.prefilter import EXAMPLE_RULES, Rules, RuleSet, load_rules
 from app.extraction.prompt import PROMPT_HASH, PROMPT_VERSION
-from app.providers.demo_data import DEMO_MESSAGES, DEMO_RESPONSES
+from app.providers.demo_data import DEMO_MESSAGES, DEMO_RESPONSES, gmail_auth
 from app.providers.fakes import FakeExtractor
 from app.providers.llm import ExtractorError
 
@@ -64,7 +64,7 @@ def add_message(
         sent_at=NOW + timedelta(minutes=minutes),
         from_addr=sender,
         subject=subject,
-        headers={},
+        headers={"Authentication-Results": gmail_auth(sender)},
         label_ids=["INBOX"],
         body_text=body,
     )

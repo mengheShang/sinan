@@ -16,6 +16,19 @@ def _at(day: int, hour: int) -> datetime:
     return datetime(2026, 11, day, hour, 0, tzinfo=UTC)
 
 
+def gmail_auth(sender: str) -> str:
+    """A fictional Authentication-Results header as Gmail writes it for mail
+    that passes DKIM, SPF and DMARC for the sender's domain (ADR 0010).
+    192.0.2.0/24 is reserved for documentation."""
+    domain = sender.rsplit("@", 1)[1]
+    return (
+        f"mx.google.com; dkim=pass header.i=@{domain} header.s=s1 header.b=Ab12Cd34; "
+        f"spf=pass (google.com: domain of {sender} designates 192.0.2.10 as permitted "
+        f"sender) smtp.mailfrom={sender}; "
+        f"dmarc=pass (p=NONE sp=NONE dis=NONE) header.from={domain}"
+    )
+
+
 def _msg(n: int, day: int, sender: str, subject: str, body: str) -> MailMessage:
     when = _at(day, 17)
     return MailMessage(
@@ -26,6 +39,7 @@ def _msg(n: int, day: int, sender: str, subject: str, body: str) -> MailMessage:
         from_addr=sender,
         subject=subject,
         body_text=body,
+        headers={"Authentication-Results": gmail_auth(sender)},
         label_ids=["INBOX", "UNREAD"],
     )
 
