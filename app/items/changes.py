@@ -4,9 +4,13 @@ Called by extraction for an item the model marked as an update and whose due
 time parsed (ADR 0009, decisions 2 and 6; technical design "DDL changes"):
 
 - The candidates are the active items (open or needs_review) from other
-  emails, except notices (ADR 0017), matched by app.items.matching. Exactly one candidate gets a
-  pending proposal based on its current version. Several or none: the
-  caller saves the change as a new item marked needs_review.
+  emails, except notices (ADR 0017), matched by app.items.matching. Exactly
+  one candidate gets a pending proposal based on its current version.
+- Several or none: when a link picker is given, the model is asked once to
+  pick from a list built by app.items.matching.choices (ADR 0019). A pick
+  takes the same path as a deterministic match, so it only ever becomes a
+  pending proposal. No pick: the caller saves the change as a new item
+  marked needs_review.
 - An older email never overrides a newer one. When the target's due time
   came from a newer email, or a pending proposal for it did, the change is
   dropped and counted as stale. A change from a newer email supersedes the
@@ -16,26 +20,33 @@ time parsed (ADR 0009, decisions 2 and 6; technical design "DDL changes"):
 - A change that gives the time the item already has proposes nothing (it
   still supersedes older pending proposals, since it confirms that time).
 
-Only local rows are written: the proposal and audit events with IDs and
-statuses. Nothing is applied here; the owner decides in the Dashboard.
+Only local rows are written: the proposal and audit events with IDs,
+statuses and counts. The creation event says which path linked the change
+(`deterministic` or `llm`) and how many candidates that path had. Nothing
+is applied here; the owner decides in the Dashboard.
 """
 
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, tzinfo
-from typing import Literal
+from typing import Any, Literal
 
-from sqlalchemy import func, select
+from sqlalchemy import Subquery, func, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.db.models import AuditEvent, ExtractionRun, Item, ItemVersion, Message, Proposal
+from app.extraction.link_prompt import LINK_PROMPT_HASH, LINK_PROMPT_VERSION
+from app.extraction.prompt import prepare
 from app.extraction.validate import ValidItem
 from app.items.assumed import Assumed, assumed_of
 from app.items.carry import carry_time
-from app.items.matching import Known, match
-from app.proposals import expiry, item_update, payload_hash
+from app.items.linking import Pick, ask
+from app.items.matching import Known, choices, match
+from app.proposals import DETERMINISTIC, expiry, item_update, payload_hash
+from app.proposals import Link as Path
+from app.providers.llm import LinkPicker
 
 ACTIVE = ("open", "needs_review")
 
@@ -57,19 +68,80 @@ def message_time() -> ColumnElement[datetime]:
     return func.coalesce(Message.sent_at, Message.received_at)
 
 
+@dataclass(frozen=True)
+class Link:
+    """How a change found its target, in IDs and counts only."""
+
+    target: uuid.UUID | None
+    path: Path | None
+    # Deterministic candidates found
+    matched: int
+    # The model's answer, when it was asked
+    pick: Pick[uuid.UUID] | None = None
+    model: str | None = None
+
+    def audit_data(self) -> dict[str, Any]:
+        """The creation event's fields for this link. Never any text."""
+        if self.path != "llm":
+            return {"link": "deterministic", "candidates": self.matched}
+        shown = self.pick.shown if self.pick else 0
+        return {
+            "link": "llm",
+            "candidates": shown,
+            "matched": self.matched,
+            "link_model": self.model,
+            "link_prompt_version": LINK_PROMPT_VERSION,
+            "link_prompt_hash": LINK_PROMPT_HASH,
+        }
+
+
+def seen_times() -> Subquery:
+    """Per item, the newest email date behind its created or changed time."""
+    newest = func.max(message_time()).label("seen_at")
+    query = (
+        select(ItemVersion.item_id, newest)
+        .join(Message, Message.id == ItemVersion.message_id)
+        .where(ItemVersion.change_type.in_(("create", "update")))
+        .group_by(ItemVersion.item_id)
+    )
+    return query.subquery()
+
+
 def pool(session: Session, msg_id: uuid.UUID) -> list[Known[uuid.UUID]]:
     """Active items except notices and those first found in this same email."""
     same = select(ItemVersion.item_id).where(
         ItemVersion.version == 1,
         ItemVersion.message_id == msg_id,
     )
+    seen = seen_times()
     query = (
-        select(Item.id, Item.course, Item.title)
+        select(Item.id, Item.course, Item.title, Item.due_at, seen.c.seen_at)
+        .outerjoin(seen, seen.c.item_id == Item.id)
         .where(Item.status.in_(ACTIVE), Item.kind != "notice", Item.id.not_in(same))
         .order_by(Item.created_at, Item.id)
     )
     rows = session.execute(query).all()
-    return [Known(row[0], row[1], row[2]) for row in rows]
+    return [Known(row[0], row[1], row[2], row[3], row[4]) for row in rows]
+
+
+def email_text(source: Source) -> str:
+    """The fenced email, as extraction showed it to the model."""
+    msg = source.message
+    return prepare(msg.subject, msg.from_addr, source.sent_at, msg.body_text or "")
+
+
+def find(session: Session, item: ValidItem, source: Source, picker: LinkPicker | None) -> Link:
+    """The deterministic match, else the model's pick when a picker is given."""
+    known = pool(session, source.message.id)
+    found = match(item.course, item.title, known)
+    if found.outcome == "one":
+        return Link(found.target, "deterministic", found.candidates)
+    if picker is None:
+        return Link(None, None, found.candidates)
+    options = choices(item.course, source.sent_at, known)
+    picked = ask(picker.pick, email_text(source), item, options)
+    path: Path | None = "llm" if picked.target is not None else None
+    return Link(picked.target, path, found.candidates, picked, picker.model)
 
 
 def current_version(session: Session, item_id: uuid.UUID) -> int:
@@ -140,14 +212,22 @@ def supersede_older(session: Session, item_id: uuid.UUID, sent_at: datetime) -> 
 
 
 def create(
-    session: Session, item: ValidItem, target: Item, source: Source, now: datetime, ttl: int
+    session: Session,
+    item: ValidItem,
+    target: Item,
+    source: Source,
+    timing: tuple[datetime, int],
+    link: Link,
 ) -> Proposal:
+    """A pending proposal. `timing` is the creation time and the TTL in days."""
+    now, ttl = timing
     base = current_version(session, target.id)
     before = (target.due_raw, target.due_at)
     after = (item.due_raw, item.due_at)
     old = current_assumed(session, target.id)
     new = Assumed(item.zone_assumed, item.time_assumed, item.date_computed, item.time_carried)
-    payload = item_update(str(target.id), before, after, item.evidence, old, new)
+    path = link.path or DETERMINISTIC
+    payload = item_update(str(target.id), before, after, item.evidence, old, new, path)
     proposal = Proposal(
         kind="item_update",
         item_id=target.id,
@@ -160,30 +240,38 @@ def create(
     )
     session.add(proposal)
     session.flush()
-    data = {"to": "pending", "base_version": base}
+    data = {"to": "pending", "base_version": base, **link.audit_data()}
     session.add(event("created", proposal, "worker", data))
     return proposal
 
 
 def propose(
-    session: Session, item: ValidItem, source: Source, now: datetime, ttl: int, home: tzinfo
-) -> Result:
-    """Match one extracted change and propose it when there is one target.
+    session: Session,
+    item: ValidItem,
+    source: Source,
+    now: datetime,
+    ttl: int,
+    home: tzinfo,
+    picker: LinkPicker | None = None,
+) -> tuple[Result, Link]:
+    """Link one extracted change and propose it when it has a target.
 
     `home` is SINAN_TIMEZONE, for reading the item's zone when its due time
-    names none.
+    names none. `picker` is the link step (ADR 0019); without it only the
+    deterministic matcher links.
     """
-    found = match(item.course, item.title, pool(session, source.message.id))
-    if found.outcome != "one" or found.target is None:
-        return "several" if found.outcome == "several" else "none"
-    lock = select(Item).where(Item.id == found.target).with_for_update()
+    link = find(session, item, source, picker)
+    if link.target is None:
+        unlinked: Result = "several" if link.matched > 1 else "none"
+        return unlinked, link
+    lock = select(Item).where(Item.id == link.target).with_for_update()
     target = session.execute(lock).scalar_one()
     if is_stale(session, target.id, source.sent_at):
-        return "stale"
+        return "stale", link
     supersede_older(session, target.id, source.sent_at)
     flags = current_assumed(session, target.id)
     item = carry_time(item, target.due_raw, target.due_at, flags, home)
     if target.due_at == item.due_at:
-        return "unchanged"
-    create(session, item, target, source, now, ttl)
-    return "proposed"
+        return "unchanged", link
+    create(session, item, target, source, (now, ttl), link)
+    return "proposed", link

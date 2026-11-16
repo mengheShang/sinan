@@ -51,6 +51,17 @@
   color: #78350f;
 }
 
+/* A proposal whose item the model chose (ADR 0019): check the target */
+.modelLink {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border: 1px solid #b91c1c;
+  border-radius: 4px;
+  background: #fee2e2;
+  color: #7f1d1d;
+}
+
 .due {
   font-size: 15px;
 }
@@ -192,6 +203,12 @@
   .flag {
     background: #78350f;
     color: #fef3c7;
+  }
+
+  .modelLink {
+    background: #7f1d1d;
+    color: #fee2e2;
+    border-color: #f87171;
   }
 
   .bad {

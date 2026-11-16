@@ -5,6 +5,7 @@ import { localTime } from "@/lib/format";
 import { AssumedNote } from "../assumed";
 import styles from "../digest.module.css";
 import { DecideButtons } from "./decide-buttons";
+import { linkBadge } from "./link";
 import type { Due, Proposal } from "./types";
 
 function dueText(due: Due, zone: string): string {
@@ -18,11 +19,17 @@ function dueText(due: Due, zone: string): string {
 }
 
 function ProposalCard({ proposal, zone }: { proposal: Proposal; zone: string }) {
+  const badge = linkBadge(proposal.link);
   return (
     <li className={styles.card}>
       <div className={styles.row}>
         {proposal.course ? <span className={styles.course}>{proposal.course}</span> : null}
         <strong>{proposal.title}</strong>
+        {badge ? (
+          <span className={styles.modelLink} role="note">
+            {badge}
+          </span>
+        ) : null}
         <span className={styles.flag}>New due time proposed</span>
       </div>
       <p className={styles.due}>

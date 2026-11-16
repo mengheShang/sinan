@@ -1,0 +1,14 @@
+{
+  "prompt_version": "link-v1",
+  "replies": {
+    "syn-065/0": {
+      "target": 1
+    },
+    "syn-067/0": {
+      "target": 2
+    },
+    "syn-068/0": {
+      "target": null
+    }
+  }
+}

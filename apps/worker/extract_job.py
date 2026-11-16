@@ -12,7 +12,7 @@ from app.config import Settings
 from app.db.extract import Counts, extract_pending, utc_now
 from app.extraction.deadlines import HOME
 from app.extraction.prefilter import EXAMPLE_RULES, Rules, load_rules
-from app.providers.llm import Extractor
+from app.providers.llm import Extractor, LinkPicker
 from apps.worker.sync_job import SessionFactory
 
 log = logging.getLogger("sinan.worker.extract")
@@ -42,17 +42,21 @@ def extract_all(
     cap: int,
     ttl_days: int = 7,
     home: tzinfo = HOME,
+    picker: LinkPicker | None = None,
 ) -> Counts | None:
     """Run one extraction pass. Returns its counts, or None when it did not run.
 
     `home` is SINAN_TIMEZONE, assumed when a due time names no zone.
+    `picker` is the link step for deadline changes (ADR 0019).
     """
     if extractor is None:
         log.info("Extraction skipped: no ANTHROPIC_API_KEY")
         return None
     with sessions() as session:
         try:
-            counts = extract_pending(session, extractor, rules, cap, ttl_days, utc_now, home)
+            counts = extract_pending(
+                session, extractor, rules, cap, ttl_days, utc_now, home, picker
+            )
         except Exception as exc:
             # Class name only: exception text could quote mail content
             log.warning("Extraction failed: %s", type(exc).__name__)

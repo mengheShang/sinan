@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from app.items.matching import Known, course_key, match, title_words
-from app.proposals import item_update, parse_utc, payload_hash, utc_text, validity
+from app.proposals import item_update, link_of, parse_utc, payload_hash, utc_text, validity
 
 NOW = datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
 
@@ -130,3 +130,33 @@ def test_item_update_payload_hashes() -> None:
         "time_carried": False,
     }
     assert len(payload_hash(payload)) == 64
+
+
+def link_payloads() -> tuple[dict[str, object], dict[str, object]]:
+    before = ("Friday 11:59pm PT", datetime(2026, 11, 14, 7, 59, tzinfo=UTC))
+    after = ("Monday 11:59pm PT", datetime(2026, 11, 17, 7, 59, tzinfo=UTC))
+    evidence = "Homework 3 is now due Monday"
+    matched = item_update("item-1", before, after, evidence)
+    picked = item_update("item-1", before, after, evidence, link="llm")
+    return matched, picked
+
+
+def test_payload_carries_the_link() -> None:
+    matched, picked = link_payloads()
+    assert matched["link"] == "deterministic"
+    assert picked["link"] == "llm"
+
+
+def test_hash_covers_the_link() -> None:
+    matched, picked = link_payloads()
+    assert payload_hash(matched) != payload_hash(picked)
+    relabeled = {**picked, "link": "deterministic"}
+    assert payload_hash(relabeled) == payload_hash(matched)
+
+
+def test_payload_without_a_link_reads_as_deterministic() -> None:
+    matched, picked = link_payloads()
+    older = {k: v for k, v in picked.items() if k != "link"}
+    assert link_of(older) == "deterministic"
+    assert link_of({**older, "link": "something else"}) == "deterministic"
+    assert link_of(picked) == "llm"

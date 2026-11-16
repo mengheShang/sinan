@@ -12,6 +12,16 @@ run in CI.
 
     uv run python -m evals.run --set synthetic --live --save-replies new.json
 
+The link step (ADR 0019) has its own recorded replies next to the set. Live
+mode asks the model for those too; `--live-links` asks only the link step
+live, over the recorded extraction replies, and `--save-link-replies` writes
+what it said. The owner records them in a Worker container, which has the
+key:
+
+    docker compose run --rm --no-deps -v ./evals:/srv/evals worker \
+        python -m evals.run --set synthetic --live-links \
+        --save-link-replies evals/synthetic.links.json
+
 The real dev set (`--set dev`) is read from the label table and is live only:
 its replies come from real mail and are never recorded. The owner runs it in
 a Worker container, which has the database, the key and the local rules:
@@ -35,18 +45,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from pydantic import SecretStr
 from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.db.session import get_engine
+from app.extraction.link_prompt import LINK_PROMPT_VERSION
 from app.extraction.prefilter import EXAMPLE_RULES, Rules, load_rules
 from app.extraction.prompt import PROMPT, prepare
-from app.providers.anthropic_llm import AnthropicExtractor
-from app.providers.llm import Extractor
+from app.providers.anthropic_llm import AnthropicExtractor, AnthropicLinkPicker
+from app.providers.llm import Extractor, LinkPicker
 from evals import dataset, real, replies
 from evals.dataset import Sample, SetError
 from evals.injection import InjectionCase, count_succeeded, load_cases
-from evals.runner import Reply, report, run
+from evals.runner import Links, Reply, link_all, report, run
 
 HERE = Path(__file__).parent
 
@@ -58,6 +70,8 @@ DEV = "dev"
 class SetFiles:
     samples: Path
     replies: Path
+    # The link step's recorded replies (ADR 0019)
+    links: Path
     # Injection cases carry an expected outcome and add a success count
     injection: bool = False
 
@@ -68,8 +82,15 @@ class SetFiles:
 
 
 SETS = {
-    "synthetic": SetFiles(HERE / "synthetic.jsonl", HERE / "synthetic.replies.json"),
-    "injection": SetFiles(HERE / "injection.jsonl", HERE / "injection.replies.json", True),
+    "synthetic": SetFiles(
+        HERE / "synthetic.jsonl", HERE / "synthetic.replies.json", HERE / "synthetic.links.json"
+    ),
+    "injection": SetFiles(
+        HERE / "injection.jsonl",
+        HERE / "injection.replies.json",
+        HERE / "injection.links.json",
+        True,
+    ),
 }
 
 
@@ -88,8 +109,21 @@ class LiveReply:
         return raw
 
 
-def live_extractor(env: dict[str, str]) -> AnthropicExtractor:
-    """The real model. Refused in CI and without a key."""
+class LiveLinks:
+    """Asks the link step live, keeping the raw replies for --save-link-replies."""
+
+    def __init__(self, picker: LinkPicker) -> None:
+        self.picker = picker
+        self.raw: dict[str, str] = {}
+
+    def __call__(self, uid: str, prompt: str, text: str) -> str:
+        raw = self.picker.pick(prompt, text)
+        self.raw[uid] = raw
+        return raw
+
+
+def live_key(env: dict[str, str]) -> tuple[SecretStr, str]:
+    """The API key and model for a live run. Refused in CI and without a key."""
     if env.get("CI", "").lower() == "true":
         raise SetError("live mode never runs in CI")
     # Environment variables only: Settings never reads a .env file
@@ -97,7 +131,19 @@ def live_extractor(env: dict[str, str]) -> AnthropicExtractor:
     key = settings.anthropic_api_key
     if key is None:
         raise SetError("live mode needs ANTHROPIC_API_KEY")
-    return AnthropicExtractor(key, settings.sinan_llm_model)
+    return key, settings.sinan_llm_model
+
+
+def live_extractor(env: dict[str, str]) -> AnthropicExtractor:
+    """The real model. Refused in CI and without a key."""
+    key, model = live_key(env)
+    return AnthropicExtractor(key, model)
+
+
+def live_picker(env: dict[str, str]) -> AnthropicLinkPicker:
+    """The real link step, on the extraction model. Refused in CI and without a key."""
+    key, model = live_key(env)
+    return AnthropicLinkPicker(key, model)
 
 
 def evaluate(
@@ -106,15 +152,19 @@ def evaluate(
     rules: Rules,
     reply: Reply,
     parts: Mapping[str, str] | None = None,
+    links: Links | None = None,
 ) -> dict[str, Any]:
     outcomes = run(samples, rules, reply)
     model = "recorded"
     if isinstance(reply, LiveReply):
         model = reply.extractor.model
     mode = "recorded" if model == "recorded" else "live"
-    result = report(name, mode, model, outcomes, parts)
+    linked = link_all(outcomes, links)
+    result = report(name, mode, model, outcomes, parts, linked=linked)
+    result["linking"]["mode"] = "live" if isinstance(links, LiveLinks) else "recorded"
     if samples and all(isinstance(s, InjectionCase) for s in samples):
-        result["counts"]["injection_succeeded"] = count_succeeded(outcomes)
+        counts = result["counts"]
+        counts["injection_succeeded"] = count_succeeded(outcomes, linked.emails)
     return result
 
 
@@ -128,6 +178,14 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     )
     parser.add_argument("--live", action="store_true", help="call the model (owner only)")
     parser.add_argument("--save-replies", type=Path, help="live mode: write the replies here")
+    parser.add_argument(
+        "--live-links",
+        action="store_true",
+        help="ask only the link step live, over recorded replies (owner only)",
+    )
+    parser.add_argument(
+        "--save-link-replies", type=Path, help="live link step: write its replies here"
+    )
     parser.add_argument("--out", type=Path, help="write the report here instead of stdout")
     return parser.parse_args(argv)
 
@@ -144,13 +202,17 @@ def evaluate_dev(args: argparse.Namespace) -> dict[str, Any]:
         raise SetError("the dev set has no recorded replies; use --live")
     if args.save_replies:
         raise SetError("replies of real mail are never saved")
+    if args.save_link_replies:
+        raise SetError("replies of real mail are never saved")
     # Checked before reading any mail
-    reply = LiveReply(live_extractor(dict(os.environ)))
+    env = dict(os.environ)
+    reply = LiveReply(live_extractor(env))
+    links = LiveLinks(live_picker(env))
     settings = Settings()
     rules = load_rules(args.rules or worker_rules(settings))
     with Session(get_engine()) as session:
         found = real.load_dev(session)
-    result = evaluate(DEV, found.samples, rules, reply, found.parts)
+    result = evaluate(DEV, found.samples, rules, reply, found.parts, links)
     result["set_version"] = found.set_version
     return result
 
@@ -164,9 +226,17 @@ def evaluate_file(args: argparse.Namespace) -> dict[str, Any]:
         reply = LiveReply(live_extractor(dict(os.environ)))
     else:
         reply = replies.Recorded(replies.load(files.replies))
-    result = evaluate(args.set, samples, rules, reply)
+    links: Links
+    if args.live or args.live_links:
+        links = LiveLinks(live_picker(dict(os.environ)))
+    else:
+        links = replies.RecordedLinks(replies.load_links(files.links))
+    result = evaluate(args.set, samples, rules, reply, links=links)
     if isinstance(reply, LiveReply) and args.save_replies:
         args.save_replies.write_text(replies.dump(reply.raw), encoding="utf-8")
+    if isinstance(links, LiveLinks) and args.save_link_replies:
+        text = replies.dump(links.raw, LINK_PROMPT_VERSION)
+        args.save_link_replies.write_text(text, encoding="utf-8")
     return result
 
 
@@ -174,6 +244,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     if args.save_replies and not args.live:
         raise SetError("--save-replies only works with --live")
+    if args.save_link_replies and not (args.live or args.live_links):
+        raise SetError("--save-link-replies only works with --live or --live-links")
     result = evaluate_dev(args) if args.set == DEV else evaluate_file(args)
     text = json.dumps(result, indent=2) + "\n"
     if args.out:

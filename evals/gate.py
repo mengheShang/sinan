@@ -86,8 +86,9 @@ def recorded_report(name: str) -> dict[str, Any]:
     files = SETS[name]
     samples = files.load()
     reply = replies.Recorded(replies.load(files.replies))
+    links = replies.RecordedLinks(replies.load_links(files.links))
     rules = load_rules(EXAMPLE_RULES)
-    return evaluate(name, samples, rules, reply)
+    return evaluate(name, samples, rules, reply, links=links)
 
 
 def check(baseline: Mapping[str, float | None]) -> tuple[list[str], dict[str, float | None]]:

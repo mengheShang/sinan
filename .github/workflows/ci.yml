@@ -103,6 +103,9 @@ jobs:
       - name: TypeScript
         # Generates Next.js route types (LayoutProps, PageProps) before tsc
         run: npm run typecheck
+      - name: Unit tests
+        # node:test on pure modules, no extra dependencies
+        run: npm test
       - name: Build
         run: npm run build
 

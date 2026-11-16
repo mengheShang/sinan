@@ -8,14 +8,15 @@ from typing import Any
 
 import pytest
 
+from app.extraction.link_prompt import LINK_PROMPT_VERSION
 from app.extraction.prefilter import EXAMPLE_RULES, Rules, decide, load_rules
 from app.extraction.prompt import PROMPT_VERSION
 from app.extraction.validate import check
 from evals import dataset, replies
 from evals.dataset import Sample, SetError
 from evals.metrics import Found
-from evals.run import SETS, LiveReply, evaluate, live_extractor, main
-from evals.runner import Linker, Outcome, envelope, found_of, report, run
+from evals.run import SETS, LiveReply, evaluate, live_extractor, live_picker, main
+from evals.runner import Linker, Outcome, envelope, found_of, report, run, to_emails
 
 SAMPLE = {
     "id": "t-001",
@@ -72,7 +73,8 @@ def synthetic_report() -> dict[str, Any]:
     files = SETS["synthetic"]
     samples = dataset.load(files.samples)
     reply = replies.Recorded(replies.load(files.replies))
-    return evaluate("synthetic", samples, rules(), reply)
+    links = replies.RecordedLinks(replies.load_links(files.links))
+    return evaluate("synthetic", samples, rules(), reply, links=links)
 
 
 def strings(value: Any) -> Iterator[str]:
@@ -92,7 +94,7 @@ def test_recorded_run_is_the_same_every_time() -> None:
     first = synthetic_report()
     second = synthetic_report()
     assert first == second
-    assert first["counts"]["emails"] == 63
+    assert first["counts"]["emails"] == 68
     assert first["mode"] == "recorded"
 
 
@@ -159,6 +161,17 @@ def test_report_holds_fixed_names_only() -> None:
         "synthetic",
         "recorded",
         PROMPT_VERSION,
+        "linking",
+        "link_prompt_version",
+        "change_accuracy_without_llm",
+        "change_accuracy_with_llm",
+        "spurious_links_without_llm",
+        "spurious_links_with_llm",
+        "asked",
+        "picked",
+        "refused",
+        "failed",
+        LINK_PROMPT_VERSION,
     }
     result = synthetic_report()
     assert set(strings(result)) <= allowed
@@ -297,12 +310,116 @@ def test_synthetic_changes_are_scored_end_to_end() -> None:
     assert change["hits"] > 0
 
 
-def found_one(sample_id: str, change: str, due_raw: str, linker: Linker) -> Found:
-    evidence = f"Homework 3 is due {due_raw}."
+class AskedLinks:
+    """Link replies by uid, remembering which changes were asked."""
+
+    def __init__(self, raw: str = '{"target": 1}') -> None:
+        self.raw = raw
+        self.asked: list[str] = []
+
+    def __call__(self, uid: str, prompt: str, text: str) -> str:
+        self.asked.append(uid)
+        return self.raw
+
+
+def test_one_deterministic_candidate_skips_the_link_step() -> None:
+    links = AskedLinks()
+    linker = Linker(links)
+    first = found_one("a", "create", "Friday Nov 13 at 11:59pm PT", linker)
+    second = found_one("b", "update", "Monday Nov 16 at 11:59pm PT", linker)
+    assert second.target == first.uid
+    assert links.asked == []
+
+
+def test_no_deterministic_candidate_asks_the_link_step() -> None:
+    links = AskedLinks()
+    linker = Linker(links)
+    first = found_one("a", "create", "Friday Nov 13 at 11:59pm PT", linker)
+    title = "Third homework"
+    second = found_one("b", "update", "Monday Nov 16 at 11:59pm PT", linker, title)
+    assert links.asked == ["b/0"]
+    assert second.target == first.uid
+    assert linker.counts.picked == 1
+
+
+def test_several_deterministic_candidates_ask_the_link_step() -> None:
+    links = AskedLinks('{"target": 2}')
+    linker = Linker(links)
+    found_one("a", "create", "Friday Nov 13 at 11:59pm PT", linker, "Homework 3 draft")
+    final = found_one("b", "create", "Friday Nov 20 at 11:59pm PT", linker, "Homework 3 final")
+    change = found_one("c", "update", "Monday Nov 23 at 11:59pm PT", linker)
+    assert links.asked == ["c/0"]
+    # Both emails have the same date, so the choices keep their order
+    assert change.target == final.uid
+
+
+@pytest.mark.parametrize("raw", ['{"target": 5}', '{"target": 1, "apply": true}', "oops"])
+def test_a_refused_link_reply_leaves_the_change_unlinked(raw: str) -> None:
+    linker = Linker(AskedLinks(raw))
+    found_one("a", "create", "Friday Nov 13 at 11:59pm PT", linker)
+    second = found_one("b", "update", "Monday Nov 16 at 11:59pm PT", linker, "Third homework")
+    assert second.target is None
+    assert linker.counts.refused == 1
+
+
+def test_without_link_replies_nothing_is_asked() -> None:
+    linker = Linker()
+    found_one("a", "create", "Friday Nov 13 at 11:59pm PT", linker)
+    second = found_one("b", "update", "Monday Nov 16 at 11:59pm PT", linker, "Third homework")
+    assert second.target is None
+
+
+def test_recorded_link_replies_cover_exactly_the_asked_changes() -> None:
+    for name in ("synthetic", "injection"):
+        files = SETS[name]
+        samples = files.load()
+        outcomes = run(samples, rules(), replies.Recorded(replies.load(files.replies)))
+        links = AskedLinks('{"target": null}')
+        to_emails(outcomes, Linker(links))
+        assert set(links.asked) == set(replies.load_links(files.links))
+
+
+def test_a_missing_link_reply_fails_loudly() -> None:
+    recorded = replies.RecordedLinks({})
+    with pytest.raises(SetError, match="no recorded link reply"):
+        recorded("syn-001/0", "prompt", "text")
+
+
+def test_link_step_raises_synthetic_change_accuracy() -> None:
+    linking = synthetic_report()["linking"]
+    without = linking["change_accuracy_without_llm"]
+    with_llm = linking["change_accuracy_with_llm"]
+    assert with_llm["hits"] > without["hits"]
+    assert linking["spurious_links_with_llm"] == 0
+    assert linking["asked"] == linking["picked"] + 1
+
+
+def test_report_without_link_replies_says_so() -> None:
+    sample = one_sample()
+    outcomes = run([sample], rules(), lambda s: json.dumps(GOOD_REPLY))
+    linking = report("t", "recorded", "recorded", outcomes)["linking"]
+    assert linking["change_accuracy_with_llm"] is None
+    assert linking["link_prompt_version"] is None
+
+
+def test_cli_refuses_save_link_replies_without_live(tmp_path: Path) -> None:
+    with pytest.raises(SetError, match="only works with --live or --live-links"):
+        main(["--save-link-replies", str(tmp_path / "l.json")])
+
+
+def test_live_link_step_never_runs_in_ci() -> None:
+    with pytest.raises(SetError, match="never runs in CI"):
+        live_picker({"CI": "true"})
+
+
+def found_one(
+    sample_id: str, change: str, due_raw: str, linker: Linker, title: str = "Homework 3"
+) -> Found:
+    evidence = f"{title} is due {due_raw}."
     item = {
         "kind": "deadline",
         "course": "CS 000",
-        "title": "Homework 3",
+        "title": title,
         "evidence": evidence,
         "due_raw": due_raw,
         "change_type": change,
@@ -325,7 +442,8 @@ def split_report() -> tuple[dict[str, Any], dict[str, str]]:
     names = ("random", "deadline_boost")
     ids = sorted(s.id for s in samples)
     parts = {sid: names[n % 2] for n, sid in enumerate(ids)}
-    return evaluate("synthetic", samples, rules(), reply, parts), parts
+    links = replies.RecordedLinks(replies.load_links(files.links))
+    return evaluate("synthetic", samples, rules(), reply, parts, links), parts
 
 
 def test_report_splits_the_parts_and_they_add_up() -> None:
