@@ -103,16 +103,19 @@ def test_demo_mailbox_end_to_end(session: Session) -> None:
     counts = extract_pending(session, fake, load_rules(EXAMPLE_RULES), cap=100)
     assert counts.extracted == len(DEMO_MESSAGES)
     # The extension becomes a proposal for the first Homework 3, not an item
-    assert (counts.items, counts.proposals) == (3, 1)
+    assert (counts.items, counts.proposals) == (4, 1)
     items = list(session.execute(sa.select(Item).order_by(Item.title)).scalars())
     titles = [(i.title, i.status) for i in items]
     assert titles == [
         ("Homework 3", "open"),
+        ("Lab report", "needs_review"),
         ("Resume workshop registration", "open"),
         ("Sign up for a project group", "open"),
     ]
-    assert items[1].kind == "notice"
-    assert items[1].due_at == datetime(2026, 11, 21, 1, 0, tzinfo=UTC)
+    # The parser cannot read the lab's date; the model's is only a suggestion
+    assert items[1].due_at is None
+    assert items[2].kind == "notice"
+    assert items[2].due_at == datetime(2026, 11, 21, 1, 0, tzinfo=UTC)
     first = items[0]
     assert first.due_at == datetime(2026, 11, 14, 7, 59, tzinfo=UTC)
     proposal = session.execute(sa.select(Proposal)).scalar_one()

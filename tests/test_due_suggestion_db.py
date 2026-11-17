@@ -52,8 +52,8 @@ def entry(title: str, evidence: str, due_raw: str, due_utc: str | None) -> dict[
 
 def replies(hw_utc: str | None) -> dict[str, str]:
     hw = entry("Homework 9", HW, "Friday Nov 20 at 11:59pm PT", hw_utc)
-    lab = entry("Lab report", LAB, "the Monday after Thanksgiving at 5pm PT", LAB_DUE.isoformat())
-    quiz = entry("Quiz 2", QUIZ, "11/19 at 5pm PT", QUIZ_DUE.isoformat())
+    lab = entry("Lab report", LAB, "the Monday after Thanksgiving at 5pm PT", "2026-12-01T01:00:00Z")
+    quiz = entry("Quiz 2", QUIZ, "11/19 at 5pm PT", "2026-11-20T01:00:00Z")
     return {
         "Homework 9 is due": json.dumps({"items": [hw]}),
         "Lab report is due": json.dumps({"items": [lab]}),
