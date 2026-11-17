@@ -1,6 +1,6 @@
 # ADR 0020: Group morning notices by category
 
-- Status: Proposed
+- Status: Accepted (2026-11-16)
 - Date: 2026-11-16
 - Decider: Menghe
 - Amends: ADR 0017 (notices)
