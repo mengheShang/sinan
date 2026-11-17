@@ -211,8 +211,8 @@ def test_a_notice_found_as_a_deadline_is_not_demoted() -> None:
 
 
 def test_a_notice_matches_whatever_its_title() -> None:
-    labels = [label("d", "Piazza daily digest 10/17", due=None, kind="notice")]
-    items = [found("x", "CSCI 455 forum: question about Lab 9", due=None, kind="notice")]
+    labels = [label("d", "CS 000 forum daily digest", due=None, kind="notice")]
+    items = [found("x", "CS 000 forum: question about Lab 4", due=None, kind="notice")]
     assert len(match_email(Email(labels, items))) == 1
     assert score([Email(labels, items)]).recall == Ratio(1, 1)
 
