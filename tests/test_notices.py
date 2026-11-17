@@ -1,5 +1,5 @@
 """Notices end to end (ADR 0017): extraction, digest, Past view, "Make it a to-do",
-Dismiss and Dismiss all.
+Dismiss and Dismiss all, and their grouping by category (ADR 0020).
 
 Synthetic mail and a FakeExtractor only. Every course, person and address is
 fictional.
@@ -9,6 +9,7 @@ import json
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -60,7 +61,14 @@ WORKSHOP_DUE = datetime(2026, 11, 21, 1, 0, tzinfo=UTC)
 ESSAY_DUE = datetime(2026, 11, 21, 7, 59, tzinfo=UTC)
 
 
-def entry(kind: str, title: str, evidence: str, due_raw: str, change: str = "create") -> str:
+def entry(
+    kind: str,
+    title: str,
+    evidence: str,
+    due_raw: str,
+    change: str = "create",
+    category: str | None = None,
+) -> str:
     item = {
         "kind": kind,
         "course": None,
@@ -68,13 +76,16 @@ def entry(kind: str, title: str, evidence: str, due_raw: str, change: str = "cre
         "due_raw": due_raw,
         "evidence": evidence,
         "change_type": change,
+        "category": category,
     }
     return json.dumps({"items": [item]})
 
 
 REPLIES = {
-    WORKSHOP: entry("notice", "Resume workshop", WORKSHOP, "Friday Nov 20 at 5pm PT"),
-    ESSAY: entry("deadline", "Essay 2", ESSAY, "Friday Nov 20 at 11:59pm PT"),
+    WORKSHOP: entry(
+        "notice", "Resume workshop", WORKSHOP, "Friday Nov 20 at 5pm PT", category="career"
+    ),
+    ESSAY: entry("deadline", "Essay 2", ESSAY, "Friday Nov 20 at 11:59pm PT", category="course"),
     MOVED: entry("notice", "Resume workshop", MOVED, "Monday Nov 23 at 5pm PT", "update"),
 }
 
@@ -126,8 +137,12 @@ def seed(
     created: datetime,
     kind: str = "notice",
     due_at: datetime | None = None,
+    category: str | None = None,
 ) -> uuid.UUID:
-    """An item with its source message, run and first version, like extraction makes."""
+    """An item with its source message, run and first version, like extraction makes.
+
+    Without a category the version looks like data saved before ADR 0020.
+    """
     msg = message(session, f"{title} for interested students.", created)
     run = ExtractionRun(
         message_id=msg.id,
@@ -148,12 +163,15 @@ def seed(
     )
     session.add(item)
     session.flush()
+    after: dict[str, object] = {"kind": kind, "title": title, "review": None}
+    if category is not None:
+        after["category"] = category
     version = ItemVersion(
         item_id=item.id,
         version=1,
         change_type="create",
         actor="extraction",
-        after={"kind": kind, "title": title, "review": None},
+        after=after,
         evidence=f"{title} for interested students.",
         message_id=msg.id,
         extraction_run_id=run.id,
@@ -421,14 +439,17 @@ def test_api_digest_lists_notices_with_date_and_link(client: TestClient, session
     seed(session, "Resume workshop", MORNING - DAY, due_at=WORKSHOP_DUE)
     digest_at(session, MORNING)
     body = client.get("/digest").json()
-    (notice,) = body["notices"]
+    (group,) = body["notice_groups"]
+    assert group["category"] == "other"
+    (notice,) = group["notices"]
     assert notice["kind"] == "notice"
     assert notice["due_at"] == "2026-11-21T01:00:00Z"
     assert notice["gmail_url"].startswith("https://mail.google.com/mail/?authuser=")
     assert body["new"] == [] and body["due_soon"] == []
     assert client.get("/items").json() == []
     past = client.get("/items/past").json()
-    assert [n["title"] for n in past["notices"]] == ["Resume workshop"]
+    (group,) = past["notice_groups"]
+    assert [n["title"] for n in group["notices"]] == ["Resume workshop"]
 
 
 def test_api_make_todo(client: TestClient, session: Session) -> None:
@@ -454,9 +475,9 @@ def test_api_dismiss_one_notice(client: TestClient, session: Session) -> None:
     digest_at(session, MORNING)
     resp = client.post(f"/items/{item_id}/status", json={"status": "dismissed"})
     assert resp.status_code == 200
-    (notice,) = client.get("/digest").json()["notices"]
+    ((notice,),) = [g["notices"] for g in client.get("/digest").json()["notice_groups"]]
     assert notice["status"] == "dismissed"
-    assert client.get("/items/past").json()["notices"] == []
+    assert client.get("/items/past").json()["notice_groups"] == []
 
 
 def test_api_dismiss_all(client: TestClient, session: Session) -> None:
@@ -488,3 +509,100 @@ def test_api_dismiss_all_needs_login(client: TestClient, session: Session) -> No
     resp = client.post("/notices/dismiss", json={"ids": [str(item_id)]})
     assert resp.status_code == 401
     assert session.get_one(Item, item_id).status == "open"
+
+
+# ---- Categories (ADR 0020) ----
+
+
+def test_extraction_stores_a_notices_category_only(session: Session) -> None:
+    message(session, WORKSHOP, MORNING - DAY)
+    message(session, ESSAY, MORNING - DAY)
+    session.commit()
+    extract(session)
+    workshop = versions_of(session, by_title(session, "Resume workshop").id)[0]
+    essay = versions_of(session, by_title(session, "Essay 2").id)[0]
+    assert workshop.after["category"] == "career"
+    assert "category" not in essay.after
+    (view,) = past_items(session, MORNING).notices
+    assert view.category == "career"
+
+
+def groups_of(client: TestClient, path: str = "/digest") -> dict[str, list[dict[str, Any]]]:
+    found = client.get(path).json()["notice_groups"]
+    return {g["category"]: g["notices"] for g in found}
+
+
+def seed_groups(session: Session) -> dict[str, uuid.UUID]:
+    when = MORNING - DAY
+    later = when + timedelta(minutes=1)
+    return {
+        "forum": seed(session, "CS 000 forum: quiz moved", when, category="course"),
+        "storm": seed(session, "Storm warning", when, category="safety"),
+        "crime": seed(session, "Crime alert near campus", later, category="safety"),
+        "concert": seed(session, "Fall concert", when, category="event"),
+        "old": seed(session, "Saved before categories", when),
+        "odd": seed(session, "Odd value", when, category="rumour"),
+    }
+
+
+def test_api_groups_notices_one_row_per_category(client: TestClient, session: Session) -> None:
+    seed_groups(session)
+    digest_at(session, MORNING)
+    found = client.get("/digest").json()["notice_groups"]
+    assert [g["category"] for g in found] == ["course", "safety", "event", "other"]
+    groups = groups_of(client)
+    assert [n["title"] for n in groups["safety"]] == ["Storm warning", "Crime alert near campus"]
+    assert {n["title"] for n in groups["other"]} == {"Saved before categories", "Odd value"}
+    assert all(n["category"] == "other" for n in groups["other"])
+    past = groups_of(client, "/items/past")
+    assert list(past) == ["course", "safety", "event", "other"]
+    assert [n["title"] for n in past["safety"]] == ["Crime alert near campus", "Storm warning"]
+
+
+def test_group_dismiss_all_dismisses_only_that_groups_shown_ids(
+    client: TestClient, session: Session
+) -> None:
+    ids = seed_groups(session)
+    digest_at(session, MORNING)
+    shown = [n["id"] for n in groups_of(client)["safety"]]
+    # A safety notice that arrives after the page loaded is not in the form
+    late = seed(session, "Gas leak drill", MORNING - DAY, category="safety")
+    resp = client.post("/notices/dismiss", json={"ids": shown})
+    assert resp.json() == {"dismissed": 2}
+    statuses = {name: session.get_one(Item, i).status for name, i in ids.items()}
+    assert statuses["storm"] == statuses["crime"] == "dismissed"
+    others = {name: s for name, s in statuses.items() if name not in ("storm", "crime")}
+    assert set(others.values()) == {"open"}
+    assert session.get_one(Item, late).status == "open"
+    past = groups_of(client, "/items/past")
+    assert [n["title"] for n in past["safety"]] == ["Gas leak drill"]
+
+
+def test_make_todo_works_inside_a_group(client: TestClient, session: Session) -> None:
+    ids = seed_groups(session)
+    digest_at(session, MORNING)
+    resp = client.post(f"/items/{ids['concert']}/kind", json={"kind": "todo"})
+    assert resp.status_code == 200
+    (concert,) = groups_of(client)["event"]
+    assert (concert["kind"], concert["category"]) == ("todo", "event")
+    todos = [i["title"] for i in client.get("/items").json()]
+    assert todos == ["Fall concert"]
+    assert "event" not in groups_of(client, "/items/past")
+
+
+def test_section_dismiss_all_dismisses_only_the_shown_notices_across_groups(
+    client: TestClient, session: Session
+) -> None:
+    ids = seed_groups(session)
+    digest_at(session, MORNING)
+    shown = [n["id"] for notices in groups_of(client).values() for n in notices]
+    # Arrives after the page loaded, in a group that is already shown
+    late = seed(session, "Gas leak drill", MORNING - DAY, category="safety")
+    task = seed(session, "Homework 3", MORNING - DAY, kind="deadline", due_at=ESSAY_DUE)
+    resp = client.post("/notices/dismiss", json={"ids": shown})
+    assert resp.json() == {"dismissed": len(ids)}
+    assert {session.get_one(Item, i).status for i in ids.values()} == {"dismissed"}
+    assert session.get_one(Item, late).status == "open"
+    assert session.get_one(Item, task).status == "open"
+    past = groups_of(client, "/items/past")
+    assert {c: [n["title"] for n in ns] for c, ns in past.items()} == {"safety": ["Gas leak drill"]}

@@ -35,6 +35,10 @@ that were created after the previous digest, up to when this one was made.
 These windows do not overlap, so each notice is in exactly one digest. A
 notice the owner has since made a to-do stays listed there, in its current
 state. `past_items` lists every open notice for the Past view.
+
+Each item view carries its notice category (ADR 0020), read from the newest
+version whose `after` has one; data without it reads as "other". The
+Dashboard shows notices grouped by it.
 """
 
 import uuid
@@ -58,6 +62,7 @@ from app.db.models import (
     Proposal,
 )
 from app.items.assumed import NOTHING, Assumed, assumed_of
+from app.items.category import OTHER, stored_category
 from app.items.timing import Phase, is_held, phase
 
 DUE_WINDOW = timedelta(days=7)
@@ -236,6 +241,8 @@ class ItemView:
     provider_msg_id: str | None
     # Parts of due_at that were assumed, not written (ADR 0016)
     assumed: Assumed = NOTHING
+    # The notice's group (ADR 0020); "other" for an item without one
+    category: str = OTHER
 
 
 @dataclass(frozen=True)
@@ -267,7 +274,7 @@ def newest(condition: Any) -> Any:
     return query.subquery()
 
 
-def item_query() -> Select[Any, Any, Any, Any, Any, Any]:
+def item_query() -> Select[Any, Any, Any, Any, Any, Any, Any]:
     """Items with their latest review code, evidence and source message.
 
     The review code comes from the newest version that sets one, and the
@@ -278,17 +285,21 @@ def item_query() -> Select[Any, Any, Any, Any, Any, Any]:
     source = newest(ItemVersion.evidence.is_not(None))
     # The version that set the due time holds its assumed parts (ADR 0016)
     due = newest(ItemVersion.after.has_key("due_at"))
+    # The version that created a notice holds its category (ADR 0020)
+    group = newest(ItemVersion.after.has_key("category"))
+    columns = (Item, review.c.after, source.c.evidence, Message, Account.email)
     return (
-        select(Item, review.c.after, source.c.evidence, Message, Account.email, due.c.after)
+        select(*columns, due.c.after, group.c.after)
         .outerjoin(review, review.c.item_id == Item.id)
         .outerjoin(source, source.c.item_id == Item.id)
         .outerjoin(Message, Message.id == source.c.message_id)
         .outerjoin(Account, Account.id == Message.account_id)
         .outerjoin(due, due.c.item_id == Item.id)
+        .outerjoin(group, group.c.item_id == Item.id)
     )
 
 
-def to_view(row: Row[Any, Any, Any, Any, Any, Any]) -> ItemView:
+def to_view(row: Row[Any, Any, Any, Any, Any, Any, Any]) -> ItemView:
     item: Item = row[0]
     after: dict[str, Any] | None = row[1]
     evidence: str | None = row[2]
@@ -312,6 +323,7 @@ def to_view(row: Row[Any, Any, Any, Any, Any, Any]) -> ItemView:
         account_email=email,
         provider_msg_id=msg.provider_msg_id if msg else None,
         assumed=assumed_of(row[5]),
+        category=stored_category(row[6]),
     )
 
 

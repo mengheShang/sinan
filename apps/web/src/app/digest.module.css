@@ -123,6 +123,36 @@
   overflow-wrap: anywhere;
 }
 
+/* One row per notice category (ADR 0020); opens to the notice lines */
+.groups {
+  display: grid;
+  gap: 6px;
+}
+
+.group {
+  border: 1px solid #d4d4d4;
+  border-radius: 6px;
+  padding: 6px 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.group summary {
+  cursor: pointer;
+  font-size: 14px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.group[open] summary {
+  white-space: normal;
+}
+
+.titles {
+  color: #525252;
+}
+
 .notice a {
   color: inherit;
   text-decoration: underline;
@@ -191,8 +221,13 @@
     border-color: #404040;
   }
 
-  .notice {
+  .notice,
+  .group {
     border-color: #404040;
+  }
+
+  .titles {
+    color: #d4d4d4;
   }
 
   .evidence {

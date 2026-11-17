@@ -1,4 +1,4 @@
-"""Prompt v5 and the email text the model sees. Pure functions only.
+"""Prompt v6 and the email text the model sees. Pure functions only.
 
 The prompt is versioned and hashed: `extraction_runs` stores the version and
 the SHA-256 of the template, never the full prompt. Change the text and the
@@ -17,13 +17,15 @@ promotions skipped.
 v5 (owner, 2026-11-15): a deadline's or to-do's title is the task's name
 only, so a later change of the same task gets the same title and the change
 matcher (app/items/matching.py) can link it.
+v6 (owner, 2026-11-16, Issue #76): each notice gets a category from a fixed
+list, used only to group the morning notices (ADR 0020).
 """
 
 import hashlib
 import re
 from datetime import datetime
 
-PROMPT_VERSION = "v5"
+PROMPT_VERSION = "v6"
 
 PROMPT = """You extract deadlines, to-dos and notices from one email for a university
 student.
@@ -85,6 +87,15 @@ For each item:
   compute, convert or complete a date; copy it as written.
 - change_type: "update" when the email changes an earlier item, such as an
   extension or a new time, else "create".
+- category: for a notice, the one that fits best; null for a deadline or
+  to-do.
+  - "course": course forum digests, instructor notes, grades posted.
+  - "safety": crime alerts, safety advisories, emergencies.
+  - "event": events, talks, volunteering, newsletters.
+  - "health": health advice and reminders.
+  - "career": application decisions, career events.
+  - "orders": shipping and delivery.
+  - "other": anything else.
 
 Return {"items": []} when there is nothing to report."""
 

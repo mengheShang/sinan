@@ -24,6 +24,8 @@ For each message that has never been extracted, under any prompt version:
    untrusted sender is saved as needs_review (`untrusted_sender`), and a
    change from one is never matched or proposed. Each version's `after`
    records the trust reason code as `sender_trust`.
+6. A notice's create version also records its `category` (ADR 0020), the
+   group it is shown in. A deadline or to-do has none.
 
 A message with a run under any prompt version is done, so a rerun skips it,
 and a new prompt version changes only how new mail is read (ADR 0016,
@@ -152,7 +154,7 @@ def new_run(msg: Message, status: str, model: str | None, detail: str | None) ->
 
 def after_fields(item: ValidItem) -> dict[str, object]:
     due_at = item.due_at.isoformat() if item.due_at else None
-    return {
+    fields: dict[str, object] = {
         "kind": item.kind,
         "course": item.course,
         "title": item.title,
@@ -167,6 +169,9 @@ def after_fields(item: ValidItem) -> dict[str, object]:
         "time_carried": item.time_carried,
         "sender_trust": item.sender_trust,
     }
+    if item.category is not None:
+        fields["category"] = item.category
+    return fields
 
 
 def save_item(session: Session, item: ValidItem, msg: Message, run: ExtractionRun) -> None:

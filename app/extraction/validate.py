@@ -24,6 +24,9 @@ Nothing the model says is trusted on its own (ADR 0007):
   does not tie to it. A notice is never a change, so it is never matched
   to another item. Choosing "notice" only makes an item less
   prominent; it gives the model no other power.
+- A notice's `category` (ADR 0020) is one of a fixed list; anything else,
+  or none, becomes "other". A deadline or to-do has no category, whatever
+  the reply says.
 - Sender trust (ADR 0010) is applied after the reply is checked, by
   `hold_untrusted`. A deadline or to-do from a sender that is not trusted
   goes to `needs_review` (`untrusted_sender`), and a change from one never
@@ -41,6 +44,7 @@ from pydantic import ValidationError
 from app.extraction.deadlines import HOME, DueParse, names_time, names_zone, parse_due
 from app.extraction.schema import ExtractedItem, Extraction
 from app.extraction.trust import TRUSTED, Trust
+from app.items.category import category_of
 
 # Shorter evidence, such as "HW", would match almost any email
 MIN_EVIDENCE = 8
@@ -68,6 +72,8 @@ class ValidItem:
     time_carried: bool = False
     # Sender trust reason code (ADR 0010); set by `hold_untrusted`
     sender_trust: str = TRUSTED
+    # The notice's group (ADR 0020); None for a deadline or to-do
+    category: str | None = None
 
     @property
     def trusted(self) -> bool:
@@ -173,6 +179,7 @@ def build(item: ExtractedItem, sent_at: datetime, home: tzinfo, body: str) -> Va
     due_raw = blank_to_none(item.due_raw)
     if item.kind == "notice" and due.reason == "due_not_in_evidence":
         due_raw = None
+    category = category_of(item.category) if item.kind == "notice" else None
     return ValidItem(
         kind=item.kind,
         course=blank_to_none(item.course),
@@ -186,6 +193,7 @@ def build(item: ExtractedItem, sent_at: datetime, home: tzinfo, body: str) -> Va
         zone_assumed=due.zone_assumed,
         time_assumed=due.time_assumed,
         date_computed=due.date_computed,
+        category=category,
     )
 
 

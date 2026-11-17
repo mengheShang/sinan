@@ -30,6 +30,14 @@ export type Item = {
   time_assumed: boolean;
   date_computed: boolean;
   time_carried: boolean;
+  // The notice's group (ADR 0020); "other" for an item without one
+  category: string;
+};
+
+// One category's notices, in the fixed category order (ADR 0020)
+export type NoticeGroup = {
+  category: string;
+  notices: Item[];
 };
 
 type Digest = {
@@ -43,8 +51,9 @@ type Digest = {
   due_soon: Item[];
   needs_review: Item[];
   expired_proposals: number;
-  // Found as notices since the previous digest, in their current state (ADR 0017)
-  notices: Item[];
+  // Found as notices since the previous digest, in their current state,
+  // grouped by category (ADR 0017, 0020)
+  notice_groups: NoticeGroup[];
   // Open notices found after this digest was made; next morning's notices so far
   later_notices: number;
 };
@@ -191,8 +200,9 @@ function NoticeLine({ item, zone }: { item: Item; zone: string }) {
   );
 }
 
-// Dismisses exactly the open notices on this page; one arriving later stays
-function DismissAll({ items }: { items: Item[] }) {
+// Dismisses exactly the open notices it is given: those shown in one group, or
+// in the whole section; one arriving after the page loaded stays
+function DismissAll({ items, label = "Dismiss all" }: { items: Item[]; label?: string }) {
   const open = items.filter((i) => i.kind === "notice" && !isClosed(i));
   if (open.length === 0) {
     return null;
@@ -202,40 +212,74 @@ function DismissAll({ items }: { items: Item[] }) {
       {open.map((i) => (
         <input key={i.id} type="hidden" name="id" value={i.id} />
       ))}
-      <button type="submit">Dismiss all</button>
+      <button type="submit">{label}</button>
     </form>
+  );
+}
+
+const CATEGORY_TEXT: Record<string, string> = {
+  course: "Courses",
+  safety: "Safety",
+  event: "Events",
+  health: "Health",
+  career: "Career",
+  orders: "Orders",
+  other: "Other",
+};
+
+// One row per category: name, count and the short titles; open it for the
+// notice lines, each with its own actions, and the group's own Dismiss all
+function NoticeGroupRow({ group, zone }: { group: NoticeGroup; zone: string }) {
+  const name = CATEGORY_TEXT[group.category] ?? CATEGORY_TEXT.other;
+  const titles = group.notices.map((i) => i.title).join(" · ");
+  return (
+    <details className={styles.group}>
+      <summary>
+        <strong>{name}</strong> <span className={styles.count}>{group.notices.length}</span>{" "}
+        <span className={styles.titles}>{titles}</span>
+      </summary>
+      <ul className={styles.notices}>
+        {group.notices.map((item) => (
+          <NoticeLine key={item.id} item={item} zone={zone} />
+        ))}
+      </ul>
+      <DismissAll items={group.notices} label={`Dismiss all ${name.toLowerCase()}`} />
+    </details>
   );
 }
 
 export function NoticeSection({
   title,
   empty,
-  items,
+  groups,
   zone,
   later = 0,
 }: {
   title: string;
   empty: string;
-  items: Item[];
+  groups: NoticeGroup[];
   zone: string;
   // Open notices since this morning's digest; they wait for the next one
   later?: number;
 }) {
+  const shown = groups.flatMap((g) => g.notices);
+  const total = shown.length;
   return (
     <section className={styles.section}>
       <h2>
-        {title} <span className={styles.count}>{items.length}</span>
+        {title} <span className={styles.count}>{total}</span>
       </h2>
-      {items.length === 0 ? (
+      {total === 0 ? (
         <p className={styles.empty}>{empty}</p>
       ) : (
         <>
-          <ul className={styles.notices}>
-            {items.map((item) => (
-              <NoticeLine key={item.id} item={item} zone={zone} />
+          <div className={styles.groups}>
+            {groups.map((group) => (
+              <NoticeGroupRow key={group.category} group={group} zone={zone} />
             ))}
-          </ul>
-          <DismissAll items={items} />
+          </div>
+          {/* Every notice shown in the section, across all groups (ADR 0017, decision 7) */}
+          <DismissAll items={shown} />
         </>
       )}
       {later > 0 ? (
@@ -337,7 +381,7 @@ function DigestView({ digest }: { digest: Digest | null | "error" }) {
       <NoticeSection
         title={digest.since ? "Notices since the last digest" : "Notices"}
         empty="No notices."
-        items={digest.notices}
+        groups={digest.notice_groups}
         zone={zone}
         later={digest.later_notices}
       />
