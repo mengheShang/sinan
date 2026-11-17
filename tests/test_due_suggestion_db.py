@@ -32,10 +32,9 @@ SENDER = "rivera@example.edu"
 HW = "CS 000 Homework 9 is due Friday Nov 20 at 11:59pm PT."
 LAB = "CS 000 Lab report is due the Monday after Thanksgiving at 5pm PT."
 QUIZ = "CS 000 Quiz 2 is on 11/19 at 5pm PT."
-# Friday Nov 20 at 11:59pm PT; Monday Nov 30 at 5pm PT; Nov 19 at 5pm PT
+# Friday Nov 20 at 11:59pm PT; Monday Nov 30 at 5pm PT
 HW_DUE = datetime(2026, 11, 21, 7, 59, tzinfo=UTC)
 LAB_DUE = datetime(2026, 12, 1, 1, 0, tzinfo=UTC)
-QUIZ_DUE = datetime(2026, 11, 20, 1, 0, tzinfo=UTC)
 
 
 def entry(title: str, evidence: str, due_raw: str, due_utc: str | None) -> dict[str, Any]:
@@ -52,7 +51,9 @@ def entry(title: str, evidence: str, due_raw: str, due_utc: str | None) -> dict[
 
 def replies(hw_utc: str | None) -> dict[str, str]:
     hw = entry("Homework 9", HW, "Friday Nov 20 at 11:59pm PT", hw_utc)
-    lab = entry("Lab report", LAB, "the Monday after Thanksgiving at 5pm PT", "2026-12-01T01:00:00Z")
+    lab = entry(
+        "Lab report", LAB, "the Monday after Thanksgiving at 5pm PT", "2026-12-01T01:00:00Z"
+    )
     quiz = entry("Quiz 2", QUIZ, "11/19 at 5pm PT", "2026-11-20T01:00:00Z")
     return {
         "Homework 9 is due": json.dumps({"items": [hw]}),
