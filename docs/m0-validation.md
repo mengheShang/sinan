@@ -216,6 +216,17 @@ If step 3 returns 409, a deleted event can only be restored with `events.update`
 
 Secondary reports say that some newer models require 30-day retention even under a zero data retention agreement. Confirm this against the provider's own documentation for the specific model chosen.
 
+**Candidate models (checked 2026-11-17, before the M2 comparison, Issue #43):**
+
+| Model | Training on API data | Retention | Covered Models rule |
+| --- | --- | --- | --- |
+| Claude Haiku 5.5 | No, by default | Deleted within 30 days | Does not apply |
+| Claude Sonnet 5.5 | No, by default | Deleted within 30 days | Does not apply |
+
+- Sources: [training](https://privacy.claude.com/en/articles/7996868-is-my-data-used-for-model-training) (page updated 2026-08-18), [retention](https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data) (updated 2026-07-01), [Covered Models](https://privacy.claude.com/en/articles/15425996-data-retention-practices-for-covered-models).
+- The Covered Models 30-day safety retention applies only to Mythos-class models (Mythos and Fable), and changes anything only for zero data retention organizations. This answers the secondary reports above for both candidates.
+- The owner approved sending the real dev set to Sonnet 5.5 on 2026-11-17.
+
 **Owner decision:**
 
 - Provider: Anthropic (Claude API).
@@ -243,4 +254,4 @@ Checks carried into M1:
 
 - Confirm the 7-day refresh token expiry during the first week of daily use (item 4).
 - Run the Calendar event ID steps against a test calendar (item 6).
-- Confirm the retention terms of each candidate model before running the evaluation on it (item 7).
+- Confirm the retention terms of each candidate model before running the evaluation on it (item 7). Done for Haiku 5.5 and Sonnet 5.5 on 2026-11-17.
