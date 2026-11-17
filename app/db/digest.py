@@ -33,8 +33,10 @@ have no phase: they never become overdue, past or stale. A digest's
 "notices" are computed on read, like overdue: the items found as notices
 that were created after the previous digest, up to when this one was made.
 These windows do not overlap, so each notice is in exactly one digest. A
-notice the owner has since made a to-do stays listed there, in its current
-state. `past_items` lists every open notice for the Past view.
+notice the owner has since made a to-do leaves that list and joins the
+digest's "new" section on read, so it sits with the other to-dos and moves
+to overdue like them (owner, 2026-11-17). `past_items` lists every open
+notice for the Past view.
 
 Each item view carries its notice category (ADR 0020), read from the newest
 version whose `after` has one; data without it reads as "other". The
@@ -382,12 +384,15 @@ def read_digest(session: Session, digest: Digest, now: datetime) -> DigestView:
         view = views[item_id]
         if shown(view, now, pending):
             sections[section].append(view)
+    found = views_of(session, notice_ids(session, digest.since, digest.generated_at))
+    notices = sorted((v for v in found if v.kind == NOTICE), key=received_key)
+    # A notice made a to-do since this digest joins its "new" section
+    made = [v for v in found if v.kind != NOTICE and shown(v, now, pending)]
+    sections["new"].extend(made)
     for name in SECTIONS:
         sections[name].sort(key=order_key)
     expired = expired_between(session, digest.since, digest.generated_at)
     overdue = by_phase(session, now)["overdue"]
-    found = notice_ids(session, digest.since, digest.generated_at)
-    notices = sorted(views_of(session, found), key=received_key)
     return DigestView(
         digest.id,
         digest.digest_date,

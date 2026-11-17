@@ -329,13 +329,15 @@ def test_make_todo_twice_is_refused(session: Session) -> None:
         make_todo(session, deadline)
 
 
-def test_a_made_todo_stays_in_its_digest_and_joins_the_lists(session: Session) -> None:
+def test_a_made_todo_leaves_the_notices_and_joins_new(session: Session) -> None:
     item_id = seed(session, "Resume workshop", MORNING - DAY, due_at=MORNING + 2 * DAY)
     made = digest_at(session, MORNING)
     make_todo(session, item_id)
     session.commit()
-    (view,) = read_digest(session, made, MORNING).notices
-    assert view.kind == "todo"
+    view = read_digest(session, made, MORNING)
+    assert view.notices == []
+    (moved,) = view.sections["new"]
+    assert (moved.title, moved.kind) == ("Resume workshop", "todo")
     assert [v.title for v in list_items(session, ("open",))] == ["Resume workshop"]
     assert past_items(session, MORNING).notices == []
     tomorrow = digest_at(session, MORNING + DAY)
@@ -583,8 +585,9 @@ def test_make_todo_works_inside_a_group(client: TestClient, session: Session) ->
     digest_at(session, MORNING)
     resp = client.post(f"/items/{ids['concert']}/kind", json={"kind": "todo"})
     assert resp.status_code == 200
-    (concert,) = groups_of(client)["event"]
-    assert (concert["kind"], concert["category"]) == ("todo", "event")
+    assert "event" not in groups_of(client)
+    new = client.get("/digest").json()["new"]
+    assert [(i["title"], i["kind"]) for i in new] == [("Fall concert", "todo")]
     todos = [i["title"] for i in client.get("/items").json()]
     assert todos == ["Fall concert"]
     assert "event" not in groups_of(client, "/items/past")
@@ -606,3 +609,25 @@ def test_section_dismiss_all_dismisses_only_the_shown_notices_across_groups(
     assert session.get_one(Item, task).status == "open"
     past = groups_of(client, "/items/past")
     assert {c: [n["title"] for n in ns] for c, ns in past.items()} == {"safety": ["Gas leak drill"]}
+
+
+def test_a_made_todo_that_is_overdue_moves_to_overdue(session: Session) -> None:
+    item_id = seed(session, "Club dues", MORNING - DAY, due_at=MORNING + DAY)
+    made = digest_at(session, MORNING)
+    make_todo(session, item_id)
+    session.commit()
+    later = MORNING + 2 * DAY
+    view = read_digest(session, made, later)
+    assert view.notices == []
+    assert view.sections["new"] == []
+    assert [v.title for v in view.overdue] == ["Club dues"]
+
+
+def test_a_made_todo_done_stays_in_new_as_done(session: Session) -> None:
+    item_id = seed(session, "Swim meet signup", MORNING - DAY)
+    made = digest_at(session, MORNING)
+    make_todo(session, item_id)
+    set_status(session, item_id, "done")
+    session.commit()
+    (moved,) = read_digest(session, made, MORNING).sections["new"]
+    assert (moved.title, moved.status) == ("Swim meet signup", "done")
