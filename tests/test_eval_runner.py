@@ -17,7 +17,7 @@ from evals import dataset, replies
 from evals.dataset import Sample, SetError
 from evals.metrics import Found
 from evals.run import SETS, LiveReply, evaluate, live_extractor, live_picker, main
-from evals.runner import Linker, Outcome, envelope, found_of, report, run, to_emails
+from evals.runner import CHECKS, Linker, Outcome, envelope, found_of, report, run, to_emails
 
 SAMPLE = {
     "id": "t-001",
@@ -183,6 +183,18 @@ def test_report_holds_fixed_names_only() -> None:
         "required_items",
         "held",
         *TRUST_REASONS,
+        "due_crosscheck",
+        "checks",
+        *CHECKS,
+        "one_click",
+        "one_click_held",
+        "from_review",
+        "to_review",
+        "suggestion",
+        "disagree_parser",
+        "withheld",
+        "right",
+        "wrong",
     }
     result = synthetic_report()
     assert set(strings(result)) <= allowed
