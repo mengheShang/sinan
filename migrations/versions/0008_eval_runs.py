@@ -12,10 +12,13 @@ item uid, and the `Authentication-Results` header read again from Gmail for
 each sample, together with what the run depended on (set version, label
 time, model, prompt versions and hashes, a hash of the rules, the commit).
 
-Rows are append-only, as `audit_events` are: the shared
-`sinan_reject_change()` trigger from 0002 rejects UPDATE, DELETE and
-TRUNCATE. The newest row of a set version is the official run; a second
-official run is a new row, which the runner refuses unless asked on purpose.
+A stored run can be removed but never altered: the shared
+`sinan_reject_change()` trigger from 0002 rejects UPDATE and TRUNCATE.
+DELETE is allowed on purpose (owner decision, 2026-11-17), because the rows
+hold text derived from real mail and the owner must be able to purge them.
+The newest row of a set version is the official run; a second official run
+is a new row, which the runner refuses unless asked on purpose. Once every
+row of a set version is deleted, a new official run needs no flag.
 
 Constraint names follow the naming convention in app/db/base.py.
 """
@@ -80,7 +83,8 @@ def upgrade() -> None:
         ["eval_set", "set_version"],
     )
     op.execute(
-        "CREATE TRIGGER eval_runs_no_change BEFORE UPDATE OR DELETE ON eval_runs "
+        # UPDATE only: DELETE stays allowed so the owner can purge stored runs
+        "CREATE TRIGGER eval_runs_no_update BEFORE UPDATE ON eval_runs "
         "FOR EACH ROW EXECUTE FUNCTION sinan_reject_change()"
     )
     op.execute(

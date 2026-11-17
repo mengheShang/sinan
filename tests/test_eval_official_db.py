@@ -177,18 +177,51 @@ def test_official_run_refuses_an_unclean_commit(session: Session, commit: str) -
     assert runs(session) == 0
 
 
-def test_stored_runs_cannot_be_changed(session: Session) -> None:
+def test_stored_runs_cannot_be_updated(session: Session) -> None:
     draw_test(session, SAMPLES[:2])
     official.run_official(session, live())
     session.commit()
-    for stmt in (
-        sa.update(EvalRun).values(model="other"),
-        sa.delete(EvalRun),
-    ):
-        savepoint = session.begin_nested()
-        with pytest.raises(sa.exc.IntegrityError):
-            session.execute(stmt)
-        savepoint.rollback()
+    savepoint = session.begin_nested()
+    with pytest.raises(sa.exc.IntegrityError):
+        session.execute(sa.update(EvalRun).values(model="other"))
+    savepoint.rollback()
+    run = official.official(session, 1)
+    assert run is not None
+    assert run.model == "fake-extractor"
+
+
+def test_stored_runs_can_be_deleted(session: Session) -> None:
+    draw_test(session, SAMPLES[:2])
+    official.run_official(session, live())
+    session.commit()
+    session.execute(sa.delete(EvalRun))
+    assert runs(session) == 0
+
+
+def test_truncate_stays_blocked(session: Session) -> None:
+    draw_test(session, SAMPLES[:2])
+    official.run_official(session, live())
+    session.commit()
+    savepoint = session.begin_nested()
+    with pytest.raises(sa.exc.IntegrityError):
+        session.execute(sa.text("TRUNCATE eval_runs"))
+    savepoint.rollback()
+    assert runs(session) == 1
+
+
+def test_after_a_purge_replay_refuses_and_a_new_run_needs_no_flag(session: Session) -> None:
+    draw_test(session, SAMPLES[:5])
+    official.run_official(session, live())
+    session.commit()
+    session.execute(sa.delete(EvalRun))
+    session.commit()
+    with pytest.raises(SetError, match="no official run"):
+        official.replay(session, load_rules(EXAMPLE_RULES))
+    official.run_official(session, live())
+    session.commit()
+    assert runs(session) == 1
+    again = official.replay(session, load_rules(EXAMPLE_RULES))
+    assert again["mode"] == "recorded"
 
 
 # ---- Range runs ----

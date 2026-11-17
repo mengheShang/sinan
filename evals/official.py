@@ -7,7 +7,9 @@ the dev set, and is used for reported metrics only. Three ways to run it:
   email, stores the raw replies in the local database (`eval_runs`, never
   the repository) and reports. A second official run is refused once one is
   stored, unless `--replace-official` is given; the new run is then the
-  official one and the old row is kept.
+  official one and the old row is kept. Rows can be deleted, never
+  altered: once a set version's rows are deleted, `--recorded` is refused
+  and a new official run needs no flag.
 - `--set test --recorded` replays the stored official run through the
   current code without calling the model or Gmail, so it gives the same
   numbers. It refuses when the prompt or the rules differ from the run's.

@@ -440,8 +440,9 @@ class EvalRun(Base):
     again from Gmail for the run. The replies hold text the model took from
     real mail, so nothing logs or prints them.
 
-    Rows are never edited or deleted; a trigger enforces that. The newest row
-    of a set version is the official run. See evals/official.py.
+    Rows are never edited; a trigger rejects UPDATE and TRUNCATE. DELETE is
+    allowed so the owner can purge them. The newest row of a set version is
+    the official run. See evals/official.py.
     """
 
     __tablename__ = "eval_runs"
