@@ -2,8 +2,9 @@
 
 M1 creates 8 of the 11 phase-one tables, plus `digests` and `digest_items`
 (ADR 0008). M2 adds `proposals` and `eval_labels` (ADR 0009, decisions 2
-and 3); `grants` and `actions` come in M3. Every model must be defined in
-or imported into this module so Alembic can discover it.
+and 3), and `eval_runs` (Issue #87); `grants` and `actions` come in M3.
+Every model must be defined in or imported into this module so Alembic can
+discover it.
 
 All primary keys are UUIDs and all timestamps are stored in UTC.
 """
@@ -425,4 +426,53 @@ class EvalLabel(Base):
     # Set once, to the transaction time, when the row is retired
     retired_at: Mapped[datetime | None] = mapped_column(UTC_TS)
     # Always the inserting transaction's time; a trigger overwrites any value
+    created_at: Mapped[datetime] = created_at()
+
+
+class EvalRun(Base):
+    """The raw model replies of one official test-set run (Issue #87).
+
+    Kept in the local database only, never in the repository, so the
+    evaluation can replay the run with `--recorded` and get the same
+    numbers without calling the model. `replies` maps a sample id to the
+    extraction reply, `link_replies` a found item's uid to the link step's
+    reply, and `auth` a sample id to the `Authentication-Results` header read
+    again from Gmail for the run. The replies hold text the model took from
+    real mail, so nothing logs or prints them.
+
+    Rows are never edited; a trigger rejects UPDATE and TRUNCATE. DELETE is
+    allowed so the owner can purge them. The newest row of a set version is
+    the official run. See evals/official.py.
+    """
+
+    __tablename__ = "eval_runs"
+    __table_args__ = (
+        CheckConstraint(one_of("eval_set", EVAL_SETS), name="eval_set"),
+        CheckConstraint("set_version >= 1", name="set_version"),
+        CheckConstraint(f"prompt_hash ~ '{HASH_PATTERN}'", name="prompt_hash"),
+        CheckConstraint(f"link_prompt_hash ~ '{HASH_PATTERN}'", name="link_prompt_hash"),
+        CheckConstraint(f"rules_hash ~ '{HASH_PATTERN}'", name="rules_hash"),
+        CheckConstraint("jsonb_typeof(replies) = 'object'", name="replies"),
+        CheckConstraint("jsonb_typeof(link_replies) = 'object'", name="link_replies"),
+        CheckConstraint("jsonb_typeof(auth) = 'object'", name="auth"),
+        Index(None, "eval_set", "set_version"),
+    )
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    eval_set: Mapped[str] = mapped_column(Text)
+    set_version: Mapped[int] = mapped_column(Integer)
+    # The labels were read as they stood at this time (labels.load_set as_of)
+    labels_as_of: Mapped[datetime] = mapped_column(UTC_TS)
+    model: Mapped[str] = mapped_column(Text)
+    prompt_version: Mapped[str] = mapped_column(Text)
+    prompt_hash: Mapped[str] = mapped_column(Text)
+    link_prompt_version: Mapped[str] = mapped_column(Text)
+    link_prompt_hash: Mapped[str] = mapped_column(Text)
+    # SHA-256 of the effective prefilter and trust rules, never the rules
+    rules_hash: Mapped[str] = mapped_column(Text)
+    # Git commit of the code that made the run
+    commit: Mapped[str] = mapped_column(Text)
+    replies: Mapped[dict[str, str]] = mapped_column(JSONB)
+    link_replies: Mapped[dict[str, str]] = mapped_column(JSONB)
+    auth: Mapped[dict[str, str]] = mapped_column(JSONB)
     created_at: Mapped[datetime] = created_at()

@@ -11,6 +11,9 @@ x-backend: &backend
   build:
     context: .
     dockerfile: docker/backend.Dockerfile
+    args:
+      # Names the image's commit in evaluation reports; `unknown` when unset
+      SINAN_COMMIT: ${SINAN_COMMIT:-unknown}
   restart: unless-stopped
   environment:
     SINAN_MODE: ${SINAN_MODE:-demo}
