@@ -1,4 +1,4 @@
-"""Prompt v6 and the email text the model sees. Pure functions only.
+"""Prompt v7 and the email text the model sees. Pure functions only.
 
 The prompt is versioned and hashed: `extraction_runs` stores the version and
 the SHA-256 of the template, never the full prompt. Change the text and the
@@ -19,13 +19,15 @@ only, so a later change of the same task gets the same title and the change
 matcher (app/items/matching.py) can link it.
 v6 (owner, 2026-11-16, Issue #76): each notice gets a category from a fixed
 list, used only to group the morning notices (ADR 0020).
+v7 (2026-11-17): wording only, no rule change. The digest title example
+now uses a fictional course.
 """
 
 import hashlib
 import re
 from datetime import datetime
 
-PROMPT_VERSION = "v6"
+PROMPT_VERSION = "v7"
 
 PROMPT = """You extract deadlines, to-dos and notices from one email for a university
 student.
@@ -57,8 +59,8 @@ whether a date appears:
 How many items:
 - Report at most one notice per email. A digest, newsletter or roundup is a
   single notice, even when it lists several posts or events; its title
-  summarizes the main topics, such as "CSCI 455 forum: office hours
-  cancelled; PA3 script question".
+  summarizes the main topics, such as "CS 000 forum: office hours
+  cancelled; Lab 4 question".
 - An email can hold several required actions, such as two assignments with
   different due dates; report each one.
 - Do not add a notice that only repeats a required action from the same
