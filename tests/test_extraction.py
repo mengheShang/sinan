@@ -53,7 +53,7 @@ def run(raw: str, body: str = BODY) -> Checked:
 
 
 def test_prompt_is_versioned_and_hashed() -> None:
-    assert PROMPT_VERSION == "v5"
+    assert PROMPT_VERSION == "v6"
     assert len(PROMPT_HASH) == 64
     assert "untrusted data" in PROMPT
 

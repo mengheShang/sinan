@@ -7,17 +7,25 @@ the schema, adds a field or asks for an action is refused either way.
 `kind` is the only field that ranks an item: "notice" makes it less
 prominent (ADR 0017). No value makes an item more prominent or lets the
 model act.
+
+`category` only picks the group a notice is shown in (ADR 0020). The JSON
+Schema lists the allowed values; the Pydantic check accepts any short
+string or none, and validation maps anything unknown to "other", so a bad
+category never refuses a reply. Replies recorded before v6 have none.
 """
 
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.items.category import CATEGORIES
+
 MAX_ITEMS = 20
 MAX_TITLE = 200
 MAX_COURSE = 50
 MAX_DUE_RAW = 200
 MAX_EVIDENCE = 1000
+MAX_CATEGORY = 50
 KINDS = ("deadline", "todo", "notice")
 
 
@@ -30,6 +38,7 @@ class ExtractedItem(BaseModel):
     due_raw: str | None = Field(max_length=MAX_DUE_RAW)
     evidence: str = Field(max_length=MAX_EVIDENCE)
     change_type: Literal["create", "update"]
+    category: str | None = Field(default=None, max_length=MAX_CATEGORY)
 
 
 class Extraction(BaseModel):
@@ -51,8 +60,17 @@ ITEM_SCHEMA: dict[str, Any] = {
         "due_raw": nullable("string"),
         "evidence": {"type": "string"},
         "change_type": {"type": "string", "enum": ["create", "update"]},
+        "category": {"anyOf": [{"type": "string", "enum": list(CATEGORIES)}, {"type": "null"}]},
     },
-    "required": ["kind", "course", "title", "due_raw", "evidence", "change_type"],
+    "required": [
+        "kind",
+        "course",
+        "title",
+        "due_raw",
+        "evidence",
+        "change_type",
+        "category",
+    ],
     "additionalProperties": False,
 }
 

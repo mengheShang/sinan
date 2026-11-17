@@ -153,7 +153,7 @@ uv run python -m evals.run --set synthetic
 uv run python -m evals.run --set synthetic --live --save-replies evals/synthetic.replies.json
 ```
 
-Recorded replies sit next to their set (`synthetic.replies.json`). Each one is the model's reply for one email: a JSON object, or a string used as raw text so a broken reply can be tested. The file names the prompt version it was recorded with, and the runner refuses it for any other version, so a prompt change needs new replies. The synthetic replies are fictional, written to follow the prompt with a few deliberate model mistakes (a missed to-do, an extra item, a dropped time zone, a required broadcast demoted to a notice), so the numbers are not trivially 100%. `--save-replies` only works in live mode; use it only for a set that is safe to commit. The replies for `syn-064` to `syn-068` (the link step samples, ADR 0019) are hand-written until the next live recording; the rest were recorded live.
+Recorded replies sit next to their set (`synthetic.replies.json`). Each one is the model's reply for one email: a JSON object, or a string used as raw text so a broken reply can be tested. The file names the prompt version it was recorded with, and the runner refuses it for any other version, so a prompt change needs new replies. The synthetic replies are fictional, written to follow the prompt with a few deliberate model mistakes (a missed to-do, an extra item, a dropped time zone, a required broadcast demoted to a notice), so the numbers are not trivially 100%. `--save-replies` only works in live mode; use it only for a set that is safe to commit. All synthetic replies were recorded live (prompt v6). The injection replies stay hand-written. A notice's `category` (ADR 0020) is in the replies but not labeled or scored.
 
 ### Report
 
@@ -195,7 +195,7 @@ When the matcher finds no candidate or several, the link step (ADR 0019, `app/it
 
 The link step's replies sit next to the set in `<set>.links.json` (`synthetic.links.json`, `injection.links.json`), in the same format as extraction replies, recorded for the link prompt version (`link-v1`). Each key is the uid of the change that was asked, `<sample id>/<n>`, where `n` is the item's place in the extraction reply. Only changes the matcher cannot place are asked, so only those have a reply; a missing one fails the run, and `tests/test_eval_runner.py` checks that the files cover exactly the changes that are asked.
 
-The current link replies are hand-written and fictional. To record them live, over the committed extraction replies, run this in a Worker container, which has the key:
+The synthetic link replies were recorded live over the prompt v6 extraction replies; the injection link replies are hand-written. To record them live, over the committed extraction replies, run this in a Worker container, which has the key:
 
 ```bash
 docker compose run --rm --no-deps -v ./evals:/srv/evals worker python -m evals.run --set synthetic --live-links --save-link-replies evals/synthetic.links.json

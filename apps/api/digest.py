@@ -20,6 +20,7 @@ from app.db.digest import ItemView, latest, list_items, past_items, read_digest
 from app.db.item_kind import NotANotice, make_todo
 from app.db.item_status import BadMove, UnknownItem, set_status
 from app.db.notice_dismiss import MAX_IDS, dismiss_all
+from app.items.category import group
 from apps.api.clock import ClockDep
 from apps.api.oauth import SessionDep
 
@@ -50,6 +51,23 @@ class ItemOut(BaseModel):
     time_assumed: bool
     date_computed: bool
     time_carried: bool
+    # The notice's group (ADR 0020); "other" for an item without one
+    category: str
+
+
+class NoticeGroupOut(BaseModel):
+    category: str
+    # In the order of the flat list they came from
+    notices: list[ItemOut]
+
+
+def notice_groups(views: list[ItemView], live: bool) -> list[NoticeGroupOut]:
+    """One group per category that has notices, in the fixed category order."""
+    found = group(views, lambda v: v.category)
+    return [
+        NoticeGroupOut(category=name, notices=[item_out(v, live) for v in members])
+        for name, members in found
+    ]
 
 
 class DigestOut(BaseModel):
@@ -65,9 +83,9 @@ class DigestOut(BaseModel):
     needs_review: list[ItemOut]
     # Proposed changes that expired unanswered since the previous digest
     expired_proposals: int
-    # Found as notices since the previous digest, in their current state;
-    # computed at read time, never stored (ADR 0017)
-    notices: list[ItemOut]
+    # Found as notices since the previous digest, in their current state,
+    # grouped by category; computed at read time, never stored (ADR 0017, 0020)
+    notice_groups: list[NoticeGroupOut]
     # Open notices found after this digest was made; they wait for the next one
     later_notices: int
 
@@ -100,6 +118,7 @@ def item_out(view: ItemView, live: bool) -> ItemOut:
         time_assumed=view.assumed.time,
         date_computed=view.assumed.date,
         time_carried=view.assumed.carried,
+        category=view.category,
     )
 
 
@@ -125,7 +144,7 @@ def digest(session: SessionDep, settings: SettingsDep, clock: ClockDep) -> Diges
         due_soon=sections["due_soon"],
         needs_review=sections["needs_review"],
         expired_proposals=view.expired_proposals,
-        notices=[item_out(v, live) for v in view.notices],
+        notice_groups=notice_groups(view.notices, live),
         later_notices=view.later_notices,
     )
 
@@ -148,8 +167,8 @@ class PastOut(BaseModel):
     past: list[ItemOut]
     # Needs review, no due time, source email over 14 days old
     stale: list[ItemOut]
-    # Every open notice, most recently received first
-    notices: list[ItemOut]
+    # Every open notice, most recently received first, grouped by category
+    notice_groups: list[NoticeGroupOut]
 
 
 @router.get("/items/past")
@@ -161,7 +180,7 @@ def past(session: SessionDep, settings: SettingsDep, clock: ClockDep) -> PastOut
     return PastOut(
         past=[item_out(v, live) for v in view.past],
         stale=[item_out(v, live) for v in view.stale],
-        notices=[item_out(v, live) for v in view.notices],
+        notice_groups=notice_groups(view.notices, live),
     )
 
 

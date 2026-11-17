@@ -120,6 +120,7 @@ DEMO_RESPONSES = {
             "evidence": "Interested students may register for the resume workshop by Friday "
             "Nov 20 at 5pm PT.",
             "change_type": "create",
+            "category": "career",
         }
     ),
 }
