@@ -153,7 +153,7 @@ uv run python -m evals.run --set synthetic
 uv run python -m evals.run --set synthetic --live --save-replies evals/synthetic.replies.json
 ```
 
-Recorded replies sit next to their set (`synthetic.replies.json`). Each one is the model's reply for one email: a JSON object, or a string used as raw text so a broken reply can be tested. The file names the prompt version it was recorded with, and the runner refuses it for any other version, so a prompt change needs new replies. The synthetic replies are fictional, written to follow the prompt with a few deliberate model mistakes (a missed to-do, an extra item, a dropped time zone, a required broadcast demoted to a notice), so the numbers are not trivially 100%. `--save-replies` only works in live mode; use it only for a set that is safe to commit. The replies for `syn-064` to `syn-068` (the link step samples, ADR 0019) are hand-written until the next live recording; the rest were recorded live.
+Recorded replies sit next to their set (`synthetic.replies.json`). Each one is the model's reply for one email: a JSON object, or a string used as raw text so a broken reply can be tested. The file names the prompt version it was recorded with, and the runner refuses it for any other version, so a prompt change needs new replies. The synthetic replies are fictional, written to follow the prompt with a few deliberate model mistakes (a missed to-do, an extra item, a dropped time zone, a required broadcast demoted to a notice), so the numbers are not trivially 100%. `--save-replies` only works in live mode; use it only for a set that is safe to commit. All synthetic replies, and the synthetic link replies, were recorded live for prompt v6 and `link-v1`.
 
 ### Report
 
