@@ -15,6 +15,10 @@ asks the model when the matcher finds no candidate or several. The headline
 `change_accuracy` is the second, the Worker's behavior; `linking` reports
 both and the link step's counts.
 
+`due_crosscheck` (ADR 0020) counts what the cross-check of the model's
+suggested due time did to found deadlines and to-dos, and, over found items
+matched to a labeled item, how often an offered suggestion was right.
+
 A report can also split the set into named parts, such as the random dev draw
 and its `deadline_boost` supplement (Issue #78). Each part gets the same counts
 and metrics, scored over its own emails after one run over the whole set, so
@@ -23,8 +27,10 @@ a change in one part still links to an item in the other.
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
+from app.extraction.crosscheck import OFFERED, same_minute
 from app.extraction.link_prompt import LINK_PROMPT_VERSION
 from app.extraction.prefilter import Envelope, Rules, decide
 from app.extraction.prompt import PROMPT_VERSION, prepare
@@ -188,7 +194,18 @@ def found_of(outcome: Outcome, linker: Linker | None = None) -> list[Found]:
     for n, item in enumerate(items):
         uid = f"{sample.id}/{n}"
         target = linker.link(uid, sample, item)
-        kept = Found(uid, item.course, item.title, item.due_at, item.status, target, item.kind)
+        kept = Found(
+            uid,
+            item.course,
+            item.title,
+            item.due_at,
+            item.status,
+            target,
+            item.kind,
+            item.due_check,
+            item.suggested_at,
+            item.review,
+        )
         found.append(kept)
     return found
 
@@ -303,6 +320,76 @@ def linking_data(linked: Linked) -> dict[str, Any]:
 
 
 REQUIRED = ("deadline", "todo")
+CHECKS = ("agree", "disagree", "suggested", "withheld", "none", "invalid")
+
+
+def right_time(label_due: datetime | None, when: datetime | None) -> bool:
+    if label_due is None or when is None:
+        return False
+    return same_minute(label_due, when)
+
+
+@dataclass
+class Tally:
+    right: int = 0
+    wrong: int = 0
+
+    def add(self, ok: bool) -> None:
+        if ok:
+            self.right += 1
+        else:
+            self.wrong += 1
+
+    def data(self) -> dict[str, Any]:
+        share = Ratio(self.wrong, self.right + self.wrong)
+        return {"right": self.right, "wrong": ratio_data(share)}
+
+
+def crosscheck_data(emails: Sequence[Email]) -> dict[str, Any]:
+    """The cross-check over found deadlines and to-dos (ADR 0020). Counts only.
+
+    - `checks`: found items per cross-check code.
+    - `one_click`: items in review whose suggestion is offered, so the owner
+      can confirm it in one click; `one_click_held` are those also held as
+      `untrusted_sender`, whose hold a confirmed time does not lift.
+    - `from_review`: offered on an item the parser could not read, which
+      waited in review without a time before.
+    - `to_review`: items the parser read but the model read differently,
+      which were open before and now wait in review.
+    - `suggestion`: over offered suggestions on items matched to a labeled
+      item, how many give the labeled due time (`right`) and the share that
+      do not (`wrong`). An ambiguous label has no right time, so any
+      suggestion on it is wrong.
+    - `disagree_parser`: over matched disagreements, whether the parser had
+      the labeled time; `wrong` is the share where it did not, so the
+      cross-check caught a parser mistake.
+    - `withheld`: the same as `suggestion` for withheld suggestions, which
+      the owner never sees, to inform which reasons withhold one.
+    """
+    found = [f for e in emails for f in e.found if f.kind in REQUIRED]
+    checks = {code: sum(1 for f in found if f.check == code) for code in CHECKS}
+    offered = [f for f in found if f.check in OFFERED]
+    held = sum(1 for f in offered if f.review == UNTRUSTED)
+    suggestion, parser, withheld = Tally(), Tally(), Tally()
+    for label, item in pairs_of(emails):
+        if item.kind not in REQUIRED:
+            continue
+        if item.check in OFFERED:
+            suggestion.add(right_time(label.due_at, item.suggested))
+        if item.check == "disagree":
+            parser.add(right_time(label.due_at, item.due_at))
+        if item.check == "withheld":
+            withheld.add(right_time(label.due_at, item.suggested))
+    return {
+        "checks": checks,
+        "one_click": len(offered) - held,
+        "one_click_held": held,
+        "from_review": checks["suggested"],
+        "to_review": checks["disagree"],
+        "suggestion": suggestion.data(),
+        "disagree_parser": parser.data(),
+        "withheld": withheld.data(),
+    }
 
 
 def trust_role(outcomes: Sequence[Outcome], role: str) -> dict[str, Any]:
@@ -367,6 +454,7 @@ def report(
         "metrics": scores_data(scores),
         "email_groups": groups_data(scores),
         "linking": linking_data(linked),
+        "due_crosscheck": crosscheck_data(emails),
         "sender_trust": trust_data(outcomes),
     }
     if parts:

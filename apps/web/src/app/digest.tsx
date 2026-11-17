@@ -3,11 +3,11 @@
 // 401 sends the browser to the login page.
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { localDate, localTime, reviewText } from "@/lib/format";
+import { localDate, localTime, reviewText, wallValue } from "@/lib/format";
 import { AssumedNote } from "./assumed";
 import { apiFetch } from "@/lib/session";
 import styles from "./digest.module.css";
-import { dismissNotices, makeTodo, setStatus } from "./items/actions";
+import { dismissNotices, makeTodo, setDue, setStatus } from "./items/actions";
 import { ProposalList } from "./proposals/list";
 import type { Proposal } from "./proposals/types";
 
@@ -30,6 +30,11 @@ export type Item = {
   time_assumed: boolean;
   date_computed: boolean;
   time_carried: boolean;
+  // The model's reading of the due time, offered for the owner to confirm
+  // (ADR 0020); never the due time until the owner sets it
+  suggested_at: string | null;
+  can_set_due: boolean;
+  due_by_owner: boolean;
 };
 
 type Digest = {
@@ -111,6 +116,64 @@ function StatusButtons({ item }: { item: Item }) {
   );
 }
 
+function DueButton({ id, dueAt, label }: { id: string; dueAt: string; label: string }) {
+  return (
+    <form action={setDue}>
+      <input type="hidden" name="id" value={id} />
+      <input type="hidden" name="due_at" value={dueAt} />
+      <button type="submit">{label}</button>
+    </form>
+  );
+}
+
+// The model's suggested due time and the owner's ways to settle it (ADR 0020):
+// use the suggestion in one click, keep Sinan's own reading when the two
+// disagree, or type another time. Nothing applies until the owner clicks.
+function DueReview({ item, zone }: { item: Item; zone: string }) {
+  if (!item.can_set_due) {
+    return null;
+  }
+  const start = item.suggested_at ?? item.due_at;
+  const held = item.review === "untrusted_sender";
+  return (
+    <div className={styles.suggestion}>
+      {item.suggested_at ? (
+        <p>
+          The model reads the due time as <strong>{localTime(item.suggested_at, zone)}</strong>.
+          Check it against the quoted text before using it.
+        </p>
+      ) : null}
+      {held ? (
+        <p className={styles.muted}>
+          Setting the time keeps this item in review: its sender is still unverified.
+        </p>
+      ) : null}
+      <div className={styles.actions}>
+        {item.suggested_at ? (
+          <DueButton id={item.id} dueAt={item.suggested_at} label="Use this time" />
+        ) : null}
+        {item.suggested_at && item.due_at ? (
+          <DueButton id={item.id} dueAt={item.due_at} label="Keep Sinan's time" />
+        ) : null}
+        <form action={setDue} className={styles.actions}>
+          <input type="hidden" name="id" value={item.id} />
+          <label>
+            Due{" "}
+            <input
+              type="datetime-local"
+              name="local"
+              required
+              defaultValue={start ? wallValue(start, zone) : undefined}
+            />{" "}
+            <span className={styles.muted}>{zone}</span>
+          </label>
+          <button type="submit">Set due time</button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export function ItemCard({ item, zone }: { item: Item; zone: string }) {
   const review = item.status === "needs_review";
   return (
@@ -133,6 +196,7 @@ export function ItemCard({ item, zone }: { item: Item; zone: string }) {
         )}
       </p>
       {item.evidence ? <blockquote className={styles.evidence}>{item.evidence}</blockquote> : null}
+      <DueReview item={item} zone={zone} />
       <p className={styles.source}>
         {item.subject ? <span>{item.subject}</span> : null}
         {item.received_at ? <span>{localTime(item.received_at, zone)}</span> : null}

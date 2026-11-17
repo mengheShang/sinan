@@ -48,6 +48,10 @@ class Found:
     # changes (ADR 0009, Issue 6). None means "not linked".
     target: str | None = None
     kind: str = "deadline"
+    # The cross-check with the model's due time (ADR 0020)
+    check: str = "none"
+    suggested: datetime | None = None
+    review: str | None = None
 
 
 @dataclass(frozen=True)

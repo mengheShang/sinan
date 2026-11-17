@@ -24,6 +24,13 @@ Nothing the model says is trusted on its own (ADR 0007):
   does not tie to it. A notice is never a change, so it is never matched
   to another item. Choosing "notice" only makes an item less
   prominent; it gives the model no other power.
+- The model's `due_utc` is cross-checked with the parser (ADR 0020,
+  app/extraction/crosscheck.py) for deadlines and to-dos. It is never used
+  as `due_at`. When the two disagree the item needs review
+  (`due_disagrees`) and keeps the parser's time; when the parser cannot
+  read the time, the item keeps the parser's reason. Either way the model's
+  time is kept as a suggestion for the owner to confirm or correct. A
+  change whose times disagree never becomes a proposal.
 - Sender trust (ADR 0010) is applied after the reply is checked, by
   `hold_untrusted`. A deadline or to-do from a sender that is not trusted
   goes to `needs_review` (`untrusted_sender`), and a change from one never
@@ -38,6 +45,7 @@ from datetime import datetime, tzinfo
 
 from pydantic import ValidationError
 
+from app.extraction.crosscheck import NOTHING, Crossed, cross
 from app.extraction.deadlines import HOME, DueParse, names_time, names_zone, parse_due
 from app.extraction.schema import ExtractedItem, Extraction
 from app.extraction.trust import TRUSTED, Trust
@@ -68,6 +76,10 @@ class ValidItem:
     time_carried: bool = False
     # Sender trust reason code (ADR 0010); set by `hold_untrusted`
     sender_trust: str = TRUSTED
+    # The model's due time and how it compares with the parser's (ADR 0020).
+    # Never used as `due_at`; the owner may confirm it from the Dashboard.
+    suggested_at: datetime | None = None
+    due_check: str = "none"
 
     @property
     def trusted(self) -> bool:
@@ -144,12 +156,14 @@ def due_of(item: ExtractedItem, sent_at: datetime, home: tzinfo, body: str) -> D
     return nothing_left_out(parsed, item.evidence, body)
 
 
-def review_of(item: ExtractedItem, due: DueParse) -> str | None:
+def review_of(item: ExtractedItem, due: DueParse, crossed: Crossed) -> str | None:
     """Why the item needs review, or None. A notice never needs review."""
     if item.kind == "notice":
         return None
     if due.reason is not None:
         return due.reason
+    if crossed.review is not None:
+        return crossed.review
     if item.change_type == "update":
         return "unmatched_update"
     return None
@@ -159,16 +173,27 @@ def is_change(item: ValidItem) -> bool:
     """An update with a parsed time; any other update stays a review item.
 
     A notice is never a change, so it never becomes a proposal. Neither is
-    an update from an untrusted sender (ADR 0010).
+    an update from an untrusted sender (ADR 0010), or one whose due time the
+    model reads differently (ADR 0020).
     """
     if item.kind == "notice" or not item.trusted:
+        return False
+    if item.due_check == "disagree":
         return False
     return item.change_type == "update" and item.due_at is not None
 
 
+def crossed_of(item: ExtractedItem, due: DueParse, sent_at: datetime) -> Crossed:
+    """The cross-check for a deadline or to-do; a notice is never checked."""
+    if item.kind == "notice":
+        return NOTHING
+    return cross(due.due_at, due.reason, item.due_utc, sent_at)
+
+
 def build(item: ExtractedItem, sent_at: datetime, home: tzinfo, body: str) -> ValidItem:
     due = due_of(item, sent_at, home, body)
-    review = review_of(item, due)
+    crossed = crossed_of(item, due, sent_at)
+    review = review_of(item, due, crossed)
     status = "open" if review is None else "needs_review"
     due_raw = blank_to_none(item.due_raw)
     if item.kind == "notice" and due.reason == "due_not_in_evidence":
@@ -186,6 +211,8 @@ def build(item: ExtractedItem, sent_at: datetime, home: tzinfo, body: str) -> Va
         zone_assumed=due.zone_assumed,
         time_assumed=due.time_assumed,
         date_computed=due.date_computed,
+        suggested_at=crossed.suggested,
+        due_check=crossed.check,
     )
 
 

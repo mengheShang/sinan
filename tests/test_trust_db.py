@@ -39,6 +39,7 @@ def item(kind: str, evidence: str, due_raw: str, change: str = "create") -> str:
         "title": "Homework 9" if kind != "notice" else "Optional talk",
         "evidence": evidence,
         "due_raw": due_raw,
+        "due_utc": None,
         "change_type": change,
     }
     return json.dumps({"items": [found]})

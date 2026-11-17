@@ -156,6 +156,7 @@ def item(
         "title": "Homework 9",
         "evidence": evidence,
         "due_raw": due_raw,
+        "due_utc": None,
         "change_type": change,
     }
 

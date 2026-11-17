@@ -209,7 +209,7 @@ def test_evidence_not_in_body_produces_no_item(session: Session) -> None:
     reply = (
         '{"items": [{"kind": "deadline", "course": null, "title": "Quiz", '
         '"due_raw": "Nov 14 5pm PT", "evidence": "Quiz due Nov 14 5pm PT", '
-        '"change_type": "create"}]}'
+        '"due_utc": null, "change_type": "create"}]}'
     )
     extract_pending(session, FakeExtractor({"Office hours": reply}), NO_RULES, cap=10)
     (run,) = runs(session)

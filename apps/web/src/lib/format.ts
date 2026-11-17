@@ -58,9 +58,27 @@ const REVIEW_TEXT: Record<string, string> = {
   unmatched_update: "Changes an earlier item, but none matched: check which one",
   ambiguous_update: "Changes an earlier item, but several matched: check which one",
   proposal_expired: "A proposed new due time expired unanswered: check the due time",
+  due_disagrees: "Sinan and the model read the due time differently: check which is right",
   untrusted_sender:
     "From a sender Sinan cannot verify: check that it is real before relying on it",
 };
+
+// A UTC time as the value of a datetime-local input in `timeZone`, such as
+// "2026-11-30T17:00", so the owner edits the wall time the Dashboard shows
+export function wallValue(value: string, timeZone: string): string {
+  const format = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+  const parts = format.formatToParts(new Date(value));
+  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}`;
+}
 
 export function reviewText(code: string | null): string {
   if (!code) {

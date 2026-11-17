@@ -8,10 +8,16 @@ export type Assumed = {
   time_assumed: boolean;
   date_computed: boolean;
   time_carried: boolean;
+  // The owner set the due time (ADR 0020); items only
+  due_by_owner?: boolean;
 };
 
 export function assumedParts(due: Assumed): string[] {
   const parts: string[] = [];
+  if (due.due_by_owner) {
+    // Set by the owner, so nothing else about it was assumed
+    return ["set by you"];
+  }
   if (due.date_computed) {
     parts.push("computed from email date");
   }

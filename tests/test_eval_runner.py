@@ -54,6 +54,7 @@ GOOD_REPLY = {
             "title": "Homework 3",
             "evidence": "Homework 3 is due Friday Nov 13 at 11:59pm PT.",
             "due_raw": "Friday Nov 13 at 11:59pm PT",
+            "due_utc": None,
             "change_type": "create",
         }
     ]
@@ -432,6 +433,7 @@ def found_one(
         "title": title,
         "evidence": evidence,
         "due_raw": due_raw,
+        "due_utc": None,
         "change_type": change,
     }
     sent = datetime(2026, 11, 2, 17, 0, tzinfo=UTC)

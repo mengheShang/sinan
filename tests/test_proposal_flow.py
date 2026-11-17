@@ -61,6 +61,7 @@ def entry(evidence: str, due_raw: str, change: str, title: str = "Homework 3") -
         "title": title,
         "due_raw": due_raw,
         "evidence": evidence,
+        "due_utc": None,
         "change_type": change,
     }
     return json.dumps({"items": [item]})

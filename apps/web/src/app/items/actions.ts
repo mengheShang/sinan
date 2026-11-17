@@ -71,3 +71,35 @@ export async function dismissNotices(form: FormData): Promise<void> {
   }
   refresh();
 }
+
+const WALL = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+
+// Sets a review item's due time (ADR 0020): the model's suggestion or the
+// parser's time as shown (due_at, UTC), or a wall time the owner typed in the
+// owner's zone (local). Appends an item version; local database only.
+export async function setDue(form: FormData): Promise<void> {
+  const id = String(form.get("id") ?? "");
+  const dueAt = String(form.get("due_at") ?? "");
+  const local = String(form.get("local") ?? "");
+  const body = dueAt ? { due_at: dueAt } : { local };
+  const valid = dueAt ? !Number.isNaN(Date.parse(dueAt)) : WALL.test(local);
+  if (!id || !valid) {
+    throw new Error("Bad due time");
+  }
+  const resp = await apiFetch(`/items/${encodeURIComponent(id)}/due`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (resp.status === 401) {
+    redirect("/login");
+  }
+  if (resp.status === 422) {
+    throw new Error("That time does not exist or happens twice on a clock change");
+  }
+  // 409 means it no longer waits on its due time, e.g. a double click; the refresh shows it
+  if (!resp.ok && resp.status !== 409) {
+    throw new Error(`Due time change failed (${resp.status})`);
+  }
+  refresh();
+}

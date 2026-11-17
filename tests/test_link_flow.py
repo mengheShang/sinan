@@ -52,6 +52,7 @@ def entry(
         "title": title,
         "due_raw": due_raw,
         "evidence": evidence,
+        "due_utc": None,
         "change_type": change,
     }
 

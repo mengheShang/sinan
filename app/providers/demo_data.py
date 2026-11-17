@@ -64,6 +64,10 @@ WORKSHOP_BODY = (
     "Seats are limited."
 )
 
+# The parser has no rule for a date tied to a holiday, so the item waits in
+# review with the model's reading offered as a suggestion (ADR 0020)
+LAB_BODY = "The lab report is due the Monday after Thanksgiving at 5pm PT."
+
 DEMO_MESSAGES = [
     _msg(1, 2, "rivera@example.edu", "CS 000: Homework 3 posted", HW3_BODY),
     _msg(2, 3, "news@example.edu", "Campus weekly", NEWSLETTER_BODY),
@@ -71,6 +75,7 @@ DEMO_MESSAGES = [
     _msg(4, 5, "chen@example.edu", "MATH 000: project groups", GROUPS_BODY),
     _msg(5, 6, "rivera@example.edu", "CS 000: Homework 3 extended", HW3_EXTENDED_BODY),
     _msg(6, 6, "career@example.edu", "Resume workshop next week", WORKSHOP_BODY),
+    _msg(7, 6, "chen@example.edu", "MATH 000: lab report", LAB_BODY),
 ]
 
 
@@ -87,6 +92,7 @@ DEMO_RESPONSES = {
             "course": "CS 000",
             "title": "Homework 3",
             "due_raw": "Friday Nov 13 at 11:59pm PT",
+            "due_utc": "2026-11-14T07:59:00Z",
             "evidence": "Homework 3 is due Friday Nov 13 at 11:59pm PT",
             "change_type": "create",
         }
@@ -97,6 +103,7 @@ DEMO_RESPONSES = {
             "course": "CS 000",
             "title": "Homework 3",
             "due_raw": "Monday Nov 16 at 11:59pm PT",
+            "due_utc": "2026-11-17T07:59:00Z",
             "evidence": "Homework 3 is now due Monday Nov 16 at 11:59pm PT",
             "change_type": "update",
         }
@@ -107,6 +114,7 @@ DEMO_RESPONSES = {
             "course": "MATH 000",
             "title": "Sign up for a project group",
             "due_raw": "Nov 10 at 5pm PT",
+            "due_utc": "2026-11-11T01:00:00Z",
             "evidence": "sign up for a project group by Nov 10 at 5pm PT",
             "change_type": "create",
         }
@@ -117,8 +125,20 @@ DEMO_RESPONSES = {
             "course": None,
             "title": "Resume workshop registration",
             "due_raw": "Friday Nov 20 at 5pm PT",
+            "due_utc": "2026-11-21T01:00:00Z",
             "evidence": "Interested students may register for the resume workshop by Friday "
             "Nov 20 at 5pm PT.",
+            "change_type": "create",
+        }
+    ),
+    "lab report is due": _items(
+        {
+            "kind": "deadline",
+            "course": "MATH 000",
+            "title": "Lab report",
+            "due_raw": "the Monday after Thanksgiving at 5pm PT",
+            "due_utc": "2026-12-01T01:00:00Z",
+            "evidence": "The lab report is due the Monday after Thanksgiving at 5pm PT.",
             "change_type": "create",
         }
     ),

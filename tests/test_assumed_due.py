@@ -56,6 +56,7 @@ def entry(evidence: str, due_raw: str, change: str) -> str:
         "title": "Homework 3",
         "due_raw": due_raw,
         "evidence": evidence.rstrip("."),
+        "due_utc": None,
         "change_type": change,
     }
     return json.dumps({"items": [item]})

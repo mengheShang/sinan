@@ -35,6 +35,7 @@ def item(**changes: Any) -> dict[str, Any]:
         "title": "Homework 3",
         "due_raw": "Friday Nov 13 at 11:59pm PT",
         "evidence": "Homework 3 is due Friday Nov 13 at 11:59pm PT",
+        "due_utc": None,
         "change_type": "create",
     }
     base.update(changes)
@@ -53,9 +54,10 @@ def run(raw: str, body: str = BODY) -> Checked:
 
 
 def test_prompt_is_versioned_and_hashed() -> None:
-    assert PROMPT_VERSION == "v5"
+    assert PROMPT_VERSION == "v6"
     assert len(PROMPT_HASH) == 64
     assert "untrusted data" in PROMPT
+    assert "due_utc" in PROMPT
 
 
 @pytest.mark.parametrize(
@@ -83,6 +85,11 @@ def test_prepare_keeps_three_headers_and_fences_the_email() -> None:
     assert text.startswith("<email>\nSubject: CS 000: HW3\nFrom: rivera@example.edu\nDate: ")
     assert text.endswith("Due Friday.\n</email>")
     assert "old reply" not in text
+
+
+def test_prepare_gives_the_owner_zone_outside_the_fence() -> None:
+    text = prepare("s", "a@example.com", SENT, "Due Friday.", "America/Los_Angeles")
+    assert text.endswith("</email>\n\nStudent's time zone: America/Los_Angeles")
 
 
 def test_email_cannot_close_its_fence() -> None:

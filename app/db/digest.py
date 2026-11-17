@@ -47,6 +47,7 @@ from sqlalchemy import ColumnElement, Row, Select, func, or_, select
 from sqlalchemy.dialects.postgresql import distinct_on, insert
 from sqlalchemy.orm import Session
 
+from app.db.item_due import can_set_due, offered_of
 from app.db.models import (
     Account,
     AuditEvent,
@@ -236,6 +237,13 @@ class ItemView:
     provider_msg_id: str | None
     # Parts of due_at that were assumed, not written (ADR 0016)
     assumed: Assumed = NOTHING
+    # The model's due time offered for the owner to confirm (ADR 0020);
+    # only on a review item, never its due time
+    suggested_at: datetime | None = None
+    # Whether the owner may set the due time from the Dashboard
+    can_set_due: bool = False
+    # The owner set the due time (app/db/item_due.py)
+    due_by_owner: bool = False
 
 
 @dataclass(frozen=True)
@@ -295,6 +303,11 @@ def to_view(row: Row[Any, Any, Any, Any, Any, Any]) -> ItemView:
     msg: Message | None = row[3]
     email: str | None = row[4]
     review = (after or {}).get("review")
+    code = review if isinstance(review, str) else None
+    due_after: dict[str, Any] | None = row[5]
+    review_item = item.status == "needs_review"
+    suggested = offered_of(due_after) if review_item else None
+    by_owner = (due_after or {}).get("due_source") is not None
     return ItemView(
         id=item.id,
         kind=item.kind,
@@ -303,7 +316,7 @@ def to_view(row: Row[Any, Any, Any, Any, Any, Any]) -> ItemView:
         due_raw=item.due_raw,
         due_at=item.due_at,
         status=item.status,
-        review=review if isinstance(review, str) else None,
+        review=code,
         evidence=evidence,
         created_at=item.created_at,
         subject=msg.subject if msg else None,
@@ -311,7 +324,10 @@ def to_view(row: Row[Any, Any, Any, Any, Any, Any]) -> ItemView:
         received_at=msg.received_at if msg else None,
         account_email=email,
         provider_msg_id=msg.provider_msg_id if msg else None,
-        assumed=assumed_of(row[5]),
+        assumed=assumed_of(due_after),
+        suggested_at=suggested,
+        can_set_due=can_set_due(item.kind, item.status, code),
+        due_by_owner=by_owner,
     )
 
 

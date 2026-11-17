@@ -55,6 +55,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.db.extract import school_addresses
 from app.db.session import get_engine
+from app.extraction.deadlines import HOME
 from app.extraction.link_prompt import LINK_PROMPT_VERSION
 from app.extraction.prefilter import EXAMPLE_RULES, Rules, load_rules
 from app.extraction.prompt import PROMPT, prepare
@@ -109,7 +110,7 @@ class LiveReply:
 
     def __call__(self, sample: Sample) -> str:
         snap = sample.input
-        text = prepare(snap.subject, snap.from_addr, snap.sent_at, snap.body_text)
+        text = prepare(snap.subject, snap.from_addr, snap.sent_at, snap.body_text, str(HOME))
         raw = self.extractor.extract(PROMPT, text)
         self.raw[sample.id] = raw
         return raw

@@ -67,6 +67,7 @@ def entry(kind: str, title: str, evidence: str, due_raw: str, change: str = "cre
         "title": title,
         "due_raw": due_raw,
         "evidence": evidence,
+        "due_utc": None,
         "change_type": change,
     }
     return json.dumps({"items": [item]})

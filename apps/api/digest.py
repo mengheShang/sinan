@@ -2,8 +2,8 @@
 
 All sit behind the login like every other route. The Worker makes digests;
 the only writes here are the owner changing an item's status, making a
-notice a to-do or dismissing the notices shown (ADR 0017), which touch the
-local database alone.
+notice a to-do, dismissing the notices shown (ADR 0017) or setting a review
+item's due time (ADR 0020), which touch the local database alone.
 Proposed changes are in apps/api/proposals.py.
 """
 
@@ -11,12 +11,14 @@ import uuid
 from datetime import date, datetime
 from typing import Annotated, Literal
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, Field, NaiveDatetime, model_validator
 
 from app.config import Settings, get_settings
 from app.db.digest import ItemView, latest, list_items, past_items, read_digest
+from app.db.item_due import BadLocalTime, NotReviewable, from_local, set_due
 from app.db.item_kind import NotANotice, make_todo
 from app.db.item_status import BadMove, UnknownItem, set_status
 from app.db.notice_dismiss import MAX_IDS, dismiss_all
@@ -50,6 +52,12 @@ class ItemOut(BaseModel):
     time_assumed: bool
     date_computed: bool
     time_carried: bool
+    # The model's due time, offered for the owner to confirm (ADR 0020)
+    suggested_at: datetime | None
+    # Whether POST /items/{id}/due is allowed
+    can_set_due: bool
+    # The owner set the due time
+    due_by_owner: bool
 
 
 class DigestOut(BaseModel):
@@ -100,6 +108,9 @@ def item_out(view: ItemView, live: bool) -> ItemOut:
         time_assumed=view.assumed.time,
         date_computed=view.assumed.date,
         time_carried=view.assumed.carried,
+        suggested_at=view.suggested_at,
+        can_set_due=view.can_set_due,
+        due_by_owner=view.due_by_owner,
     )
 
 
@@ -211,6 +222,62 @@ def change_kind(item_id: uuid.UUID, body: KindBody, session: SessionDep) -> Kind
         raise HTTPException(status.HTTP_409_CONFLICT, detail) from exc
     session.commit()
     return KindOut(kind=body.kind, version=version.version)
+
+
+class DueBody(BaseModel):
+    """Exactly one: a UTC time (a suggestion or the parser's time, as shown),
+    or a wall time in the owner's zone typed on the Dashboard."""
+
+    due_at: AwareDatetime | None = None
+    local: NaiveDatetime | None = None
+
+    @model_validator(mode="after")
+    def one_of(self) -> "DueBody":
+        if (self.due_at is None) == (self.local is None):
+            raise ValueError("give due_at or local, not both")
+        return self
+
+
+class DueOut(BaseModel):
+    due_at: datetime
+    status: str
+    version: int
+
+
+def local_due(local: datetime, zone: str) -> datetime:
+    try:
+        return from_local(local, ZoneInfo(zone))
+    except BadLocalTime as exc:
+        detail = f"That time does not exist or happens twice in {zone} ({exc.code})"
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail) from exc
+
+
+def due_of(body: DueBody, zone: str) -> datetime:
+    if body.local is not None:
+        return local_due(body.local, zone)
+    if body.due_at is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "No due time given")
+    return body.due_at
+
+
+@router.post("/items/{item_id}/due")
+def change_due(
+    item_id: uuid.UUID, body: DueBody, session: SessionDep, settings: SettingsDep
+) -> DueOut:
+    """Set a review item's due time (ADR 0020). 409 when the item does not wait
+    on its due time, e.g. a second click."""
+    when = due_of(body, settings.sinan_timezone)
+    try:
+        version = set_due(session, item_id, when)
+    except UnknownItem as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown item") from exc
+    except NotReviewable as exc:
+        session.rollback()
+        detail = "Only a deadline or to-do waiting on its due time can be set"
+        raise HTTPException(status.HTTP_409_CONFLICT, detail) from exc
+    session.commit()
+    after = version.after or {}
+    return DueOut(due_at=when, status=str(after["status"]), version=version.version)
 
 
 class DismissBody(BaseModel):

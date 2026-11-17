@@ -12,6 +12,9 @@ For each message that has never been extracted, under any prompt version:
    assumed, or its date computed from the email date (ADR 0016):
    `zone_assumed`, `time_assumed`, `date_computed` and `time_carried`
    (the last is true only on a version an approved proposal appends).
+   It also keeps the model's suggested due time and how it compared with
+   the parser's (ADR 0020): `due_suggested` and `due_check`. The suggestion
+   is never `due_at`; only the owner can confirm it (app/db/item_due.py).
 4. An item the model marks as an update, with a parsed due time, is matched
    to the item it changes (app/items/changes.py). One match becomes a
    pending proposal instead of a new item. With several matches or none,
@@ -152,6 +155,7 @@ def new_run(msg: Message, status: str, model: str | None, detail: str | None) ->
 
 def after_fields(item: ValidItem) -> dict[str, object]:
     due_at = item.due_at.isoformat() if item.due_at else None
+    suggested = item.suggested_at.isoformat() if item.suggested_at else None
     return {
         "kind": item.kind,
         "course": item.course,
@@ -166,6 +170,8 @@ def after_fields(item: ValidItem) -> dict[str, object]:
         "date_computed": item.date_computed,
         "time_carried": item.time_carried,
         "sender_trust": item.sender_trust,
+        "due_suggested": suggested,
+        "due_check": item.due_check,
     }
 
 
@@ -297,7 +303,8 @@ def extract_one(
 ) -> None:
     """Send one message to the model and save the outcome. May raise a service error."""
     when = sent_time(msg)
-    text = prepare(msg.subject, msg.from_addr, when, msg.body_text or "")
+    body = msg.body_text or ""
+    text = prepare(msg.subject, msg.from_addr, when, body, str(policy.home))
     start = time.monotonic()
     try:
         raw = extractor.extract(PROMPT, text)
