@@ -588,3 +588,21 @@ def test_make_todo_works_inside_a_group(client: TestClient, session: Session) ->
     todos = [i["title"] for i in client.get("/items").json()]
     assert todos == ["Fall concert"]
     assert "event" not in groups_of(client, "/items/past")
+
+
+def test_section_dismiss_all_dismisses_only_the_shown_notices_across_groups(
+    client: TestClient, session: Session
+) -> None:
+    ids = seed_groups(session)
+    digest_at(session, MORNING)
+    shown = [n["id"] for notices in groups_of(client).values() for n in notices]
+    # Arrives after the page loaded, in a group that is already shown
+    late = seed(session, "Gas leak drill", MORNING - DAY, category="safety")
+    task = seed(session, "Homework 3", MORNING - DAY, kind="deadline", due_at=ESSAY_DUE)
+    resp = client.post("/notices/dismiss", json={"ids": shown})
+    assert resp.json() == {"dismissed": len(ids)}
+    assert {session.get_one(Item, i).status for i in ids.values()} == {"dismissed"}
+    assert session.get_one(Item, late).status == "open"
+    assert session.get_one(Item, task).status == "open"
+    past = groups_of(client, "/items/past")
+    assert {c: [n["title"] for n in ns] for c, ns in past.items()} == {"safety": ["Gas leak drill"]}

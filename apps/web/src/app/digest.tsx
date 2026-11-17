@@ -200,9 +200,9 @@ function NoticeLine({ item, zone }: { item: Item; zone: string }) {
   );
 }
 
-// Dismisses exactly the open notices it is given, those shown in one group;
-// one arriving later, or in another group, stays
-function DismissAll({ items }: { items: Item[] }) {
+// Dismisses exactly the open notices it is given: those shown in one group, or
+// in the whole section; one arriving after the page loaded stays
+function DismissAll({ items, label = "Dismiss all" }: { items: Item[]; label?: string }) {
   const open = items.filter((i) => i.kind === "notice" && !isClosed(i));
   if (open.length === 0) {
     return null;
@@ -212,7 +212,7 @@ function DismissAll({ items }: { items: Item[] }) {
       {open.map((i) => (
         <input key={i.id} type="hidden" name="id" value={i.id} />
       ))}
-      <button type="submit">Dismiss all</button>
+      <button type="submit">{label}</button>
     </form>
   );
 }
@@ -228,7 +228,7 @@ const CATEGORY_TEXT: Record<string, string> = {
 };
 
 // One row per category: name, count and the short titles; open it for the
-// notice lines, each with its own actions, and the group's Dismiss all
+// notice lines, each with its own actions, and the group's own Dismiss all
 function NoticeGroupRow({ group, zone }: { group: NoticeGroup; zone: string }) {
   const name = CATEGORY_TEXT[group.category] ?? CATEGORY_TEXT.other;
   const titles = group.notices.map((i) => i.title).join(" · ");
@@ -243,7 +243,7 @@ function NoticeGroupRow({ group, zone }: { group: NoticeGroup; zone: string }) {
           <NoticeLine key={item.id} item={item} zone={zone} />
         ))}
       </ul>
-      <DismissAll items={group.notices} />
+      <DismissAll items={group.notices} label={`Dismiss all ${name.toLowerCase()}`} />
     </details>
   );
 }
@@ -262,7 +262,8 @@ export function NoticeSection({
   // Open notices since this morning's digest; they wait for the next one
   later?: number;
 }) {
-  const total = groups.reduce((sum, g) => sum + g.notices.length, 0);
+  const shown = groups.flatMap((g) => g.notices);
+  const total = shown.length;
   return (
     <section className={styles.section}>
       <h2>
@@ -271,11 +272,15 @@ export function NoticeSection({
       {total === 0 ? (
         <p className={styles.empty}>{empty}</p>
       ) : (
-        <div className={styles.groups}>
-          {groups.map((group) => (
-            <NoticeGroupRow key={group.category} group={group} zone={zone} />
-          ))}
-        </div>
+        <>
+          <div className={styles.groups}>
+            {groups.map((group) => (
+              <NoticeGroupRow key={group.category} group={group} zone={zone} />
+            ))}
+          </div>
+          {/* Every notice shown in the section, across all groups (ADR 0017, decision 7) */}
+          <DismissAll items={shown} />
+        </>
       )}
       {later > 0 ? (
         <p className={styles.meta}>
