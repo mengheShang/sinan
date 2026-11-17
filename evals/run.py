@@ -37,6 +37,11 @@ read-only token, in memory only, and trusts the school accounts' domains as
 the Worker does. `sender_trust.auth_fetched` and `auth_missing` count how
 that went.
 
+`--model` picks the model for one live run instead of SINAN_LLM_MODEL, so
+candidates can be compared (Issue #43). A live run's report adds `usage`:
+calls, summed input and output tokens, and median and p90 latency per call,
+for the extraction and the link step apart. Counts and timings only.
+
 The report goes to stdout, or to --out. It holds summary metrics only.
 """
 
@@ -59,12 +64,13 @@ from app.extraction.link_prompt import LINK_PROMPT_VERSION
 from app.extraction.prefilter import EXAMPLE_RULES, Rules, load_rules
 from app.extraction.prompt import PROMPT, prepare
 from app.extraction.trust import with_school
-from app.providers.anthropic_llm import AnthropicExtractor, AnthropicLinkPicker
+from app.providers.anthropic_llm import AnthropicExtractor, AnthropicLinkPicker, client_messages
 from app.providers.llm import Extractor, LinkPicker
 from evals import dataset, real, replies
 from evals.dataset import Sample, SetError
 from evals.injection import InjectionCase, count_succeeded, load_cases
 from evals.runner import Links, Reply, link_all, report, run
+from evals.usage import Metered, usage_data
 
 HERE = Path(__file__).parent
 
@@ -103,8 +109,9 @@ SETS = {
 class LiveReply:
     """Calls the model for each sample, keeping the raw replies for --save-replies."""
 
-    def __init__(self, extractor: Extractor) -> None:
+    def __init__(self, extractor: Extractor, meter: Metered | None = None) -> None:
         self.extractor = extractor
+        self.meter = meter
         self.raw: dict[str, str] = {}
 
     def __call__(self, sample: Sample) -> str:
@@ -118,8 +125,9 @@ class LiveReply:
 class LiveLinks:
     """Asks the link step live, keeping the raw replies for --save-link-replies."""
 
-    def __init__(self, picker: LinkPicker) -> None:
+    def __init__(self, picker: LinkPicker, meter: Metered | None = None) -> None:
         self.picker = picker
+        self.meter = meter
         self.raw: dict[str, str] = {}
 
     def __call__(self, uid: str, prompt: str, text: str) -> str:
@@ -128,8 +136,11 @@ class LiveLinks:
         return raw
 
 
-def live_key(env: dict[str, str]) -> tuple[SecretStr, str]:
-    """The API key and model for a live run. Refused in CI and without a key."""
+def live_key(env: dict[str, str], model: str | None = None) -> tuple[SecretStr, str]:
+    """The API key and model for a live run. Refused in CI and without a key.
+
+    `model` overrides SINAN_LLM_MODEL for this run only.
+    """
     if env.get("CI", "").lower() == "true":
         raise SetError("live mode never runs in CI")
     # Environment variables only: Settings never reads a .env file
@@ -137,19 +148,45 @@ def live_key(env: dict[str, str]) -> tuple[SecretStr, str]:
     key = settings.anthropic_api_key
     if key is None:
         raise SetError("live mode needs ANTHROPIC_API_KEY")
-    return key, settings.sinan_llm_model
+    return key, model or settings.sinan_llm_model
 
 
-def live_extractor(env: dict[str, str]) -> AnthropicExtractor:
+def live_extractor(env: dict[str, str], model: str | None = None) -> AnthropicExtractor:
     """The real model. Refused in CI and without a key."""
-    key, model = live_key(env)
-    return AnthropicExtractor(key, model)
+    key, name = live_key(env, model)
+    return AnthropicExtractor(key, name)
 
 
-def live_picker(env: dict[str, str]) -> AnthropicLinkPicker:
+def live_picker(env: dict[str, str], model: str | None = None) -> AnthropicLinkPicker:
     """The real link step, on the extraction model. Refused in CI and without a key."""
-    key, model = live_key(env)
-    return AnthropicLinkPicker(key, model)
+    key, name = live_key(env, model)
+    return AnthropicLinkPicker(key, name)
+
+
+def live_reply(env: dict[str, str], model: str | None = None) -> LiveReply:
+    """Live extraction with its calls metered."""
+    key, name = live_key(env, model)
+    meter = Metered(client_messages(key))
+    return LiveReply(AnthropicExtractor(key, name, meter), meter)
+
+
+def live_links(env: dict[str, str], model: str | None = None) -> LiveLinks:
+    """The live link step with its calls metered."""
+    key, name = live_key(env, model)
+    meter = Metered(client_messages(key))
+    return LiveLinks(AnthropicLinkPicker(key, name, meter), meter)
+
+
+def usage_of(reply: Reply, links: Links | None) -> dict[str, Any] | None:
+    """Tokens and latency of the metered live calls, or None in recorded mode."""
+    extraction = reply.meter if isinstance(reply, LiveReply) else None
+    linking = links.meter if isinstance(links, LiveLinks) else None
+    if extraction is None and linking is None:
+        return None
+    return {
+        "extraction": usage_data(extraction) if extraction else None,
+        "linking": usage_data(linking) if linking else None,
+    }
 
 
 def evaluate(
@@ -171,6 +208,9 @@ def evaluate(
     if samples and all(isinstance(s, InjectionCase) for s in samples):
         counts = result["counts"]
         counts["injection_succeeded"] = count_succeeded(outcomes, linked.emails)
+    usage = usage_of(reply, links)
+    if usage is not None:
+        result["usage"] = usage
     return result
 
 
@@ -192,6 +232,9 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument(
         "--save-link-replies", type=Path, help="live link step: write its replies here"
     )
+    parser.add_argument(
+        "--model", help="live mode: the model for this run instead of SINAN_LLM_MODEL"
+    )
     parser.add_argument("--out", type=Path, help="write the report here instead of stdout")
     return parser.parse_args(argv)
 
@@ -212,8 +255,8 @@ def evaluate_dev(args: argparse.Namespace) -> dict[str, Any]:
         raise SetError("replies of real mail are never saved")
     # Checked before reading any mail
     env = dict(os.environ)
-    reply = LiveReply(live_extractor(env))
-    links = LiveLinks(live_picker(env))
+    reply = live_reply(env, args.model)
+    links = live_links(env, args.model)
     settings = Settings()
     rules = load_rules(args.rules or worker_rules(settings))
     # Imported here: the Worker's readers need the live OAuth settings
@@ -238,12 +281,12 @@ def evaluate_file(args: argparse.Namespace) -> dict[str, Any]:
     rules = load_rules(args.rules or EXAMPLE_RULES)
     reply: Reply
     if args.live:
-        reply = LiveReply(live_extractor(dict(os.environ)))
+        reply = live_reply(dict(os.environ), args.model)
     else:
         reply = replies.Recorded(replies.load(files.replies))
     links: Links
     if args.live or args.live_links:
-        links = LiveLinks(live_picker(dict(os.environ)))
+        links = live_links(dict(os.environ), args.model)
     else:
         links = replies.RecordedLinks(replies.load_links(files.links))
     result = evaluate(args.set, samples, rules, reply, links=links)
@@ -261,6 +304,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise SetError("--save-replies only works with --live")
     if args.save_link_replies and not (args.live or args.live_links):
         raise SetError("--save-link-replies only works with --live or --live-links")
+    if args.model and not (args.live or args.live_links):
+        raise SetError("--model only works with --live or --live-links")
     result = evaluate_dev(args) if args.set == DEV else evaluate_file(args)
     text = json.dumps(result, indent=2) + "\n"
     if args.out:
