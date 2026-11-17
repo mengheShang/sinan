@@ -53,7 +53,7 @@ from app.extraction.trust import AUTH_HEADER, with_school
 from evals import real, replies
 from evals.dataset import Sample, SetError
 from evals.real import ReaderFor, RealSet
-from evals.run import LiveLinks, LiveReply, evaluate, live_extractor, live_picker, worker_rules
+from evals.run import LiveLinks, LiveReply, evaluate, live_links, live_reply, worker_rules
 
 TEST = "test"
 UNKNOWN = "unknown"
@@ -75,6 +75,8 @@ REPORT_KEYS = (
     "email_groups",
     "linking",
     "sender_trust",
+    # Tokens and latency of a live run's calls; None for a replay
+    "usage",
 )
 
 # The keys of a range report, and nothing else
@@ -184,6 +186,7 @@ def official_report(result: Mapping[str, Any], info: RunInfo, mode: str) -> dict
     found["run_at"] = info.run_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
     for key in ("counts", "metrics", "email_groups", "linking", "sender_trust"):
         found[key] = result[key]
+    found["usage"] = result.get("usage")
     return {key: found[key] for key in REPORT_KEYS}
 
 
@@ -444,8 +447,9 @@ def check_args(args: argparse.Namespace) -> None:
 def live_setup(args: argparse.Namespace) -> Live:
     """The live model, link step, rules and reader. Checked before reading any mail."""
     env = dict(os.environ)
-    extractor = live_extractor(env)
-    picker = live_picker(env)
+    model = args.model
+    # Checks CI and the key now; each run below gets its own metered calls
+    live_reply(env, model)
     settings = Settings()
     rules = load_rules(args.rules or worker_rules(settings))
     # Imported here: the Worker's readers need the live OAuth settings
@@ -453,8 +457,8 @@ def live_setup(args: argparse.Namespace) -> Live:
 
     return Live(
         rules,
-        lambda: LiveReply(extractor),
-        lambda: LiveLinks(picker),
+        lambda: live_reply(env, model),
+        lambda: live_links(env, model),
         build_readers(settings),
         commit_of(env),
     )
