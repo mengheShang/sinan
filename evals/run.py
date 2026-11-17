@@ -37,6 +37,11 @@ read-only token, in memory only, and trusts the school accounts' domains as
 the Worker does. `sender_trust.auth_fetched` and `auth_missing` count how
 that went.
 
+The real test set (`--set test`) is the reported M2 metrics (Issue #87):
+`--live` is the one official run, whose raw replies stay in the local
+database, `--recorded` replays it without the model, and `--live --range N`
+gives a min–max only. See evals/official.py.
+
 The report goes to stdout, or to --out. It holds summary metrics only.
 """
 
@@ -70,6 +75,7 @@ HERE = Path(__file__).parent
 
 # Read from the label table, never from a file
 DEV = "dev"
+TEST = "test"
 
 
 @dataclass(frozen=True)
@@ -176,7 +182,7 @@ def evaluate(
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="evals.run")
-    parser.add_argument("--set", choices=[*sorted(SETS), DEV], default="synthetic")
+    parser.add_argument("--set", choices=[*sorted(SETS), DEV, TEST], default="synthetic")
     parser.add_argument(
         "--rules",
         type=Path,
@@ -191,6 +197,17 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--save-link-replies", type=Path, help="live link step: write its replies here"
+    )
+    parser.add_argument(
+        "--recorded", action="store_true", help="test set: replay the stored official run"
+    )
+    parser.add_argument(
+        "--range", type=int, help="test set: N more live runs, min-max only, not stored"
+    )
+    parser.add_argument(
+        "--replace-official",
+        action="store_true",
+        help="test set: make a new official run although one is stored",
     )
     parser.add_argument("--out", type=Path, help="write the report here instead of stdout")
     return parser.parse_args(argv)
@@ -255,13 +272,27 @@ def evaluate_file(args: argparse.Namespace) -> dict[str, Any]:
     return result
 
 
+def by_set(args: argparse.Namespace) -> dict[str, Any]:
+    test_only = args.recorded or args.range is not None or args.replace_official
+    if test_only and args.set != TEST:
+        raise SetError("--recorded, --range and --replace-official are for --set test")
+    if args.set == DEV:
+        return evaluate_dev(args)
+    if args.set == TEST:
+        # Imported here: evals.official imports this module
+        from evals import official
+
+        return official.evaluate_test(args)
+    return evaluate_file(args)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     if args.save_replies and not args.live:
         raise SetError("--save-replies only works with --live")
     if args.save_link_replies and not (args.live or args.live_links):
         raise SetError("--save-link-replies only works with --live or --live-links")
-    result = evaluate_dev(args) if args.set == DEV else evaluate_file(args)
+    result = by_set(args)
     text = json.dumps(result, indent=2) + "\n"
     if args.out:
         args.out.write_text(text, encoding="utf-8")

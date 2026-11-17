@@ -29,9 +29,15 @@ def add_item(engine: Engine, kind: str) -> None:
         c.execute(sa.insert(Item).values(kind=kind, title="Fictional item"))
 
 
-def test_0007_is_head_after_0006(db_url: str) -> None:
+def head(db_url: str) -> str:
     script = ScriptDirectory.from_config(alembic_config(db_url))
-    assert script.get_current_head() == "0007"
+    found = script.get_current_head()
+    assert found is not None
+    return found
+
+
+def test_0007_follows_0006(db_url: str) -> None:
+    script = ScriptDirectory.from_config(alembic_config(db_url))
     assert script.get_revision("0007").down_revision == "0006"
 
 
@@ -47,8 +53,8 @@ def test_downgrade_refuses_while_notices_exist(engine: Engine, db_url: str) -> N
     cfg = alembic_config(db_url)
     with pytest.raises(RuntimeError, match="kind 'notice'"):
         command.downgrade(cfg, "0006")
-    # Nothing changed: still at 0007, and notices are still allowed
-    assert current(engine) == "0007"
+    # Nothing changed: still at head, and notices are still allowed
+    assert current(engine) == head(db_url)
     add_item(engine, "notice")
 
 
@@ -78,7 +84,7 @@ def test_downgrade_then_upgrade_without_notices(clean: str) -> None:
         with pytest.raises(sa.exc.IntegrityError):
             add_item(engine, "notice")
         command.upgrade(cfg, "head")
-        assert current(engine) == "0007"
+        assert current(engine) == head(clean)
         add_item(engine, "notice")
     finally:
         engine.dispose()
