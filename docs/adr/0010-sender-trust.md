@@ -49,6 +49,8 @@ Without it, anyone can write `From: registrar@<school domain>`, and the From hea
 
 Gmail adds its `Authentication-Results` above every header the sender wrote, and the adapter keeps only the first header of each name. A results header the sender wrote is therefore never the one read, and one that names another server is ignored.
 
+**Amended 2026-11-18 (owner): DMARC relaxed alignment.** A `dmarc=pass` also counts when Gmail reports it for a parent of the From domain, for example `header.from=google.com` on mail from `xwf.google.com`. The From domain must still be on a trusted list, and the parent must contain it at a dot boundary (`domain_matches`). DMARC itself checks that the From domain belongs to the organization it authenticated, so this is the standard relaxed alignment, not a looser rule. A DKIM or SPF pass for the parent alone still does not count. Found while diagnosing the M2 test run (#87), where the only labeled required item was held this way. The official M2 numbers are not re-run.
+
 ### 3. Required items from untrusted senders wait for review
 
 A `deadline` or `todo` from an untrusted sender is saved with status `needs_review` and review `untrusted_sender`. This reason replaces any earlier one (such as a due time outside the evidence): whether the email is real comes first, and the item keeps its own fields. Nothing is dropped. Trusted senders keep today's behavior.

@@ -12,6 +12,10 @@ Trust comes only from things the email body cannot control:
    from `mx.google.com` and show a pass aligned with the trusted rule:
    `dmarc=pass` for the From domain, or `dkim=pass` or `spf=pass` for a
    domain the rule covers. An explicit `dmarc=fail` is never trusted.
+   DMARC uses relaxed alignment (ADR 0010, amended 2026-11-18): a
+   `dmarc=pass` reported for the From domain's parent, such as `google.com`
+   for mail from `xwf.google.com`, also counts, since DMARC already checked
+   that the From domain belongs to the authenticated organization.
    `[trust] require_auth = false` skips this step.
 
 Nothing in the body, and nothing the model says, can raise trust. Every
@@ -115,10 +119,33 @@ def checked_domain(check: Check) -> str | None:
     return None
 
 
-def authenticated(checks: list[Check], scope: frozenset[str]) -> bool:
-    """Some check passed for a domain inside `scope`, and DMARC did not fail."""
+def dmarc_aligned(checks: list[Check], sender_domain: str | None) -> bool:
+    """DMARC passed for the sender's domain or a parent of it (relaxed alignment)."""
+    if sender_domain is None:
+        return False
+    for check in checks:
+        if check.method != "dmarc":
+            continue
+        passed = checked_domain(check)
+        if passed is None:
+            continue
+        if domain_matches(sender_domain.lower(), frozenset({passed.lower()})):
+            return True
+    return False
+
+
+def authenticated(
+    checks: list[Check], scope: frozenset[str], sender_domain: str | None = None
+) -> bool:
+    """Some check passed for a domain inside `scope`, or DMARC passed for the
+    sender's domain or its parent, and DMARC did not fail.
+
+    `sender_domain` must already be inside `scope` (`scope_of` ensures it).
+    """
     if any(c.method == "dmarc" and c.result == "fail" for c in checks):
         return False
+    if dmarc_aligned(checks, sender_domain):
+        return True
     domains = [checked_domain(check) for check in checks]
     return any(domain_matches(domain, scope) for domain in domains)
 
@@ -156,7 +183,7 @@ def sender_trust(env: Envelope, rules: Rules) -> Trust:
     checks = gmail_checks(env.headers)
     if checks is None:
         return Trust(False, "no_auth")
-    if not authenticated(checks, scope):
+    if not authenticated(checks, scope, domain_of(sender)):
         return Trust(False, "auth_failed")
     return Trust(True, TRUSTED)
 

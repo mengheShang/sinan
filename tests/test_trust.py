@@ -278,3 +278,47 @@ def test_adapter_keeps_only_the_first_authentication_results() -> None:
     }
     kept = header_map(payload)
     assert kept == {"Authentication-Results": gmail}
+
+
+# ---- DMARC relaxed alignment (ADR 0010, amended 2026-11-18) ----
+
+
+def parent_pass(addr: str, parent: str, dmarc: bool = True) -> str:
+    """Gmail results that pass for a parent domain, as for mail from a subdomain."""
+    parts = [
+        f"mx.google.com;\r\n       dkim=pass header.i=@{parent} header.s=s1 header.b=Ab12;",
+        f"       spf=pass (google.com: domain of bounce@{parent} designates 192.0.2.10 as"
+        f" permitted sender) smtp.mailfrom=bounce@{parent}",
+    ]
+    if dmarc:
+        parts[-1] += ";"
+        parts.append(f"       dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from={parent}")
+    return "\r\n".join(parts)
+
+
+def test_dmarc_pass_for_the_parent_of_a_trusted_subdomain() -> None:
+    # jobs.example.com is trusted; Gmail reports every pass for example.com
+    sender = "recruiter@jobs.example.com"
+    assert reason(sender, parent_pass(sender, "example.com")) == "trusted"
+
+
+def test_parent_pass_without_dmarc_does_not_count() -> None:
+    sender = "recruiter@jobs.example.com"
+    auth = parent_pass(sender, "example.com", dmarc=False)
+    assert reason(sender, auth) == "auth_failed"
+
+
+def test_parent_pass_never_trusts_an_unlisted_subdomain() -> None:
+    sender = "someone@other.example.com"
+    assert reason(sender, parent_pass(sender, "example.com")) == "unknown_sender"
+
+
+def test_dmarc_pass_for_an_unrelated_domain_does_not_count() -> None:
+    sender = "recruiter@jobs.example.com"
+    assert reason(sender, parent_pass(sender, "relay.example.net")) == "auth_failed"
+
+
+def test_dmarc_pass_for_a_name_that_only_ends_alike_does_not_count() -> None:
+    # "jobs.example.com" ends with "ample.com" but is not under it
+    sender = "recruiter@jobs.example.com"
+    assert reason(sender, parent_pass(sender, "ample.com")) == "auth_failed"
