@@ -7,6 +7,9 @@ name: sinan
 # No fixed `image:` names. Compose names images after the project (sinan-api,
 # sinan-web, ...), so a branch or demo started with `-p <other>` builds its own
 # images and cannot replace the ones the live stack runs.
+#
+# The anchor holds no environment: each service lists only the variables it
+# needs, so a key cannot reach a service by inheritance (ADR 0021, decision 1).
 x-backend: &backend
   build:
     context: .
@@ -15,11 +18,6 @@ x-backend: &backend
       # Names the image's commit in evaluation reports; `unknown` when unset
       SINAN_COMMIT: ${SINAN_COMMIT:-unknown}
   restart: unless-stopped
-  environment:
-    SINAN_MODE: ${SINAN_MODE:-demo}
-    DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-sinan}:${POSTGRES_PASSWORD:-sinan}@db:5432/${POSTGRES_DB:-sinan}
-    # Empty in demo mode; live mode refuses to start without a valid key
-    SINAN_ENCRYPTION_KEY: ${SINAN_ENCRYPTION_KEY:-}
   depends_on:
     db:
       condition: service_healthy
@@ -49,7 +47,10 @@ services:
     environment:
       SINAN_MODE: ${SINAN_MODE:-demo}
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-sinan}:${POSTGRES_PASSWORD:-sinan}@db:5432/${POSTGRES_DB:-sinan}
+      # Read tokens at rest. Empty in demo mode; live mode refuses to start without it
       SINAN_ENCRYPTION_KEY: ${SINAN_ENCRYPTION_KEY:-}
+      # Seals write and calendar tokens for the Executor; the API cannot open them
+      SINAN_EXECUTOR_PUBLIC_KEY: ${SINAN_EXECUTOR_PUBLIC_KEY:-}
       # Dashboard login. Only the API gets these; empty means the demo login in demo mode
       SINAN_DASHBOARD_USERNAME: ${SINAN_DASHBOARD_USERNAME:-}
       SINAN_DASHBOARD_PASSWORD_HASH: ${SINAN_DASHBOARD_PASSWORD_HASH:-}
@@ -99,8 +100,16 @@ services:
 
   executor:
     <<: *backend
-    # The only service that holds the write token
+    # The only service that can open write and calendar tokens. It gets the
+    # private key and the OAuth client to refresh them, and never
+    # SINAN_ENCRYPTION_KEY, so it cannot open read tokens (ADR 0021)
     command: python -m apps.executor.main
+    environment:
+      SINAN_MODE: ${SINAN_MODE:-demo}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-sinan}:${POSTGRES_PASSWORD:-sinan}@db:5432/${POSTGRES_DB:-sinan}
+      SINAN_EXECUTOR_PRIVATE_KEY: ${SINAN_EXECUTOR_PRIVATE_KEY:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
 
   web:
     build:
