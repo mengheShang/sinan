@@ -66,6 +66,7 @@ from app.db.models import (
 from app.items.assumed import NOTHING, Assumed, assumed_of
 from app.items.category import OTHER, stored_category
 from app.items.timing import Phase, is_held, phase
+from app.proposals import ITEM_UPDATE
 
 DUE_WINDOW = timedelta(days=7)
 ACTIVE = ("open", "needs_review")
@@ -122,11 +123,13 @@ def pending_items(session: Session, now: datetime) -> set[uuid.UUID]:
     query = (
         select(Proposal.item_id)
         .join(current, current.c.item_id == Proposal.item_id)
+        .where(Proposal.kind == ITEM_UPDATE)
         .where(Proposal.status == "pending")
         .where(Proposal.expires_at > now)
         .where(Proposal.base_version == current.c.version)
     )
-    return set(session.execute(query).scalars())
+    found = session.execute(query).scalars()
+    return {item_id for item_id in found if item_id is not None}
 
 
 def was_notice() -> ColumnElement[bool]:

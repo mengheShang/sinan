@@ -27,7 +27,7 @@ from app.actions.proposals import (
 )
 from app.db.models import Account, Item, Message, Proposal
 from app.items.assumed import assumed_of
-from app.proposals import HASH_PATTERN, Link, link_of
+from app.proposals import HASH_PATTERN, ITEM_UPDATE, Link, link_of
 from apps.api.clock import ClockDep
 from apps.api.digest import SettingsDep
 from apps.api.oauth import SessionDep
@@ -127,6 +127,7 @@ def rows(session: Session, stored: set[str]) -> list[Any]:
         .join(Item, Item.id == Proposal.item_id)
         .join(Message, Message.id == Proposal.message_id)
         .join(Account, Account.id == Message.account_id)
+        .where(Proposal.kind == ITEM_UPDATE)
         .where(Proposal.status.in_(stored))
         .order_by(Proposal.expires_at, Proposal.id)
     )

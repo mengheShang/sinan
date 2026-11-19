@@ -216,7 +216,9 @@ def test_content_cannot_change(conn: Connection, change: dict[str, Any]) -> None
 def test_proposals_cannot_be_deleted(conn: Connection) -> None:
     pid = new_proposal(conn, status="expired")
     fails(conn, sa.delete(Proposal).where(Proposal.id == pid))
-    fails(conn, sa.text("TRUNCATE proposals"))
+    # `actions` references proposals since 0009, so truncate both: the
+    # guard trigger, not the foreign key, must be what refuses
+    fails(conn, sa.text("TRUNCATE proposals, actions"))
 
 
 def test_target_item_cannot_be_deleted(conn: Connection) -> None:
@@ -235,8 +237,13 @@ def test_downgrade_then_upgrade(engine: Engine, db_url: str) -> None:
     with engine.connect() as c:
         query = "SELECT count(*) FROM pg_proc WHERE proname = 'sinan_proposal_guard'"
         assert c.execute(sa.text(query)).scalar_one() == 0
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, "0004")
     inspector = sa.inspect(engine)
     assert "proposals" in inspector.get_table_names()
     columns = {c["name"]: c for c in inspector.get_columns("proposals")}
     assert columns["base_version"]["nullable"] is False
+    # 0009 lets email actions leave it empty
+    command.upgrade(cfg, "head")
+    inspector = sa.inspect(engine)
+    columns = {c["name"]: c for c in inspector.get_columns("proposals")}
+    assert columns["base_version"]["nullable"] is True
