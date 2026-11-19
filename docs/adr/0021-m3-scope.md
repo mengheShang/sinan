@@ -1,6 +1,6 @@
 # ADR 0021: M3 scope decisions
 
-- Status: Proposed
+- Status: Accepted (2026-11-19)
 - Date: 2026-11-18
 - Decider: Menghe
 
