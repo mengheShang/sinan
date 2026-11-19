@@ -44,7 +44,7 @@ from app.items.assumed import Assumed, assumed_of
 from app.items.carry import carry_time
 from app.items.linking import Pick, ask
 from app.items.matching import Known, choices, match
-from app.proposals import DETERMINISTIC, expiry, item_update, payload_hash
+from app.proposals import DETERMINISTIC, ITEM_UPDATE, expiry, item_update, payload_hash
 from app.proposals import Link as Path
 from app.providers.llm import LinkPicker
 
@@ -180,6 +180,7 @@ def pending_on(session: Session, item_id: uuid.UUID) -> list[tuple[Proposal, dat
     query = (
         select(Proposal, message_time())
         .join(Message, Message.id == Proposal.message_id)
+        .where(Proposal.kind == ITEM_UPDATE)
         .where(Proposal.item_id == item_id, Proposal.status == "pending")
         .order_by(Proposal.created_at)
     )
@@ -229,7 +230,7 @@ def create(
     path = link.path or DETERMINISTIC
     payload = item_update(str(target.id), before, after, item.evidence, old, new, path)
     proposal = Proposal(
-        kind="item_update",
+        kind=ITEM_UPDATE,
         item_id=target.id,
         base_version=base,
         payload=payload,

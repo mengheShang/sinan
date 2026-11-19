@@ -22,6 +22,8 @@ from typing import Any, Literal
 from app.items.assumed import NOTHING, Assumed, assumed_fields
 
 HASH_PATTERN = r"^[0-9a-f]{64}$"
+# The only kind that changes an item; the M3 kinds are external actions
+ITEM_UPDATE = "item_update"
 
 # How an item_update proposal's item was chosen (ADR 0019)
 Link = Literal["deterministic", "llm"]

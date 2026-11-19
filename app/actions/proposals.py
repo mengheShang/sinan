@@ -35,7 +35,15 @@ from sqlalchemy.orm import Session
 from app.db.models import AuditEvent, Item, ItemVersion, Proposal
 from app.items.assumed import assumed_fields, assumed_of
 from app.items.changes import current_version, event
-from app.proposals import EXPIRED, SUPERSEDED, VALID, parse_utc, payload_hash, validity
+from app.proposals import (
+    EXPIRED,
+    ITEM_UPDATE,
+    SUPERSEDED,
+    VALID,
+    parse_utc,
+    payload_hash,
+    validity,
+)
 
 ACTIVE = ("open", "needs_review")
 REVIEW_CODE = "proposal_expired"
@@ -57,6 +65,19 @@ class HashMismatch(Exception):
     """The stored payload, its hash and the hash shown to the owner disagree."""
 
 
+def item_of(proposal: Proposal) -> tuple[uuid.UUID, int]:
+    """The item and base version of an item_update proposal.
+
+    Since migration 0009 both columns are empty for an email action, which
+    this module never decides; such a proposal is treated as unknown here.
+    """
+    item_id = proposal.item_id
+    base = proposal.base_version
+    if proposal.kind != ITEM_UPDATE or item_id is None or base is None:
+        raise UnknownProposal(str(proposal.id))
+    return item_id, base
+
+
 def lock_item(session: Session, item_id: uuid.UUID) -> Item:
     query = select(Item).where(Item.id == item_id).with_for_update()
     return session.execute(query).scalar_one()
@@ -75,7 +96,8 @@ def to_review(session: Session, proposal: Proposal, actor: str) -> None:
     made this move. The version still points at the email whose change went
     unanswered, so the Dashboard can show that evidence next to the flag.
     """
-    item = lock_item(session, proposal.item_id)
+    item_id, _ = item_of(proposal)
+    item = lock_item(session, item_id)
     if item.status != "open":
         # Already in review, or closed: nothing to flag
         return
@@ -111,11 +133,12 @@ def check(session: Session, proposal: Proposal, now: datetime, actor: str) -> st
 
     Locks the item first (see `load`), so the version read here stays current.
     """
-    lock_item(session, proposal.item_id)
+    item_id, base = item_of(proposal)
+    lock_item(session, item_id)
     # Another transaction may have decided it since it was read
     session.refresh(proposal, with_for_update=True)
-    current = current_version(session, proposal.item_id)
-    state = validity(proposal.status, proposal.base_version, current, proposal.expires_at, now)
+    current = current_version(session, item_id)
+    state = validity(proposal.status, base, current, proposal.expires_at, now)
     if proposal.status != "pending" or state == VALID:
         return state
     mark(session, proposal, state, actor)
@@ -128,14 +151,20 @@ def effective(session: Session, proposal: Proposal, now: datetime) -> str:
     """The status a proposal has now, computed only: nothing is written or locked."""
     if proposal.status != "pending":
         return proposal.status
-    current = current_version(session, proposal.item_id)
-    state = validity(proposal.status, proposal.base_version, current, proposal.expires_at, now)
+    item_id, base = item_of(proposal)
+    current = current_version(session, item_id)
+    state = validity(proposal.status, base, current, proposal.expires_at, now)
     return "pending" if state == VALID else state
 
 
 def sweep(session: Session, now: datetime, actor: str) -> dict[str, int]:
     """Check every pending proposal. Returns how many expired and were superseded."""
-    query = select(Proposal).where(Proposal.status == "pending").order_by(Proposal.created_at)
+    query = (
+        select(Proposal)
+        .where(Proposal.kind == ITEM_UPDATE)
+        .where(Proposal.status == "pending")
+        .order_by(Proposal.created_at)
+    )
     counts = {EXPIRED: 0, SUPERSEDED: 0}
     for proposal in session.execute(query).scalars().all():
         state = check(session, proposal, now, actor)
@@ -150,7 +179,10 @@ def load(session: Session, proposal_id: uuid.UUID) -> Proposal:
     Item first, then proposal: the same order extraction uses when it
     supersedes older proposals, so the two cannot deadlock.
     """
-    find = select(Proposal.item_id).where(Proposal.id == proposal_id)
+    find = select(Proposal.item_id).where(
+        Proposal.id == proposal_id,
+        Proposal.kind == ITEM_UPDATE,
+    )
     item_id = session.execute(find).scalar_one_or_none()
     if item_id is None:
         raise UnknownProposal(str(proposal_id))
@@ -193,7 +225,8 @@ class Applied:
 
 def apply(session: Session, proposal: Proposal) -> int:
     """Write the change to the item and append its version. Returns the version."""
-    item = lock_item(session, proposal.item_id)
+    item_id, _ = item_of(proposal)
+    item = lock_item(session, item_id)
     after = proposal.payload["after"]
     number = current_version(session, item.id) + 1
     new_status = "open" if item.status in ACTIVE else item.status
@@ -243,7 +276,8 @@ def approve(session: Session, proposal_id: uuid.UUID, shown: str, now: datetime)
     data = {"from": "approved", "to": "executed", "version": number}
     session.add(event("executed", proposal, "user", data))
     session.flush()
-    return Applied(proposal.id, proposal.item_id, number)
+    item_id, _ = item_of(proposal)
+    return Applied(proposal.id, item_id, number)
 
 
 def reject(session: Session, proposal_id: uuid.UUID, now: datetime) -> None:

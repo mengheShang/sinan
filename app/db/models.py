@@ -2,7 +2,8 @@
 
 M1 creates 8 of the 11 phase-one tables, plus `digests` and `digest_items`
 (ADR 0008). M2 adds `proposals` and `eval_labels` (ADR 0009, decisions 2
-and 3), and `eval_runs` (Issue #87); `grants` and `actions` come in M3.
+and 3), and `eval_runs` (Issue #87). M3 adds `grants` and `actions` (ADR
+0021, migration 0009).
 Every model must be defined in or imported into this module so Alembic can
 discover it.
 
@@ -27,7 +28,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -36,14 +37,19 @@ from app.proposals import HASH_PATTERN
 UTC_TS = DateTime(timezone=True)
 
 
+def quoted(values: tuple[str, ...]) -> str:
+    """SQL string literals for fixed values, comma-separated."""
+    return ", ".join(f"'{v}'" for v in values)
+
+
 def one_of(column: str, values: tuple[str, ...]) -> str:
     """SQL for a CHECK that limits a column to fixed values."""
-    quoted = ", ".join(f"'{v}'" for v in values)
-    return f"{column} IN ({quoted})"
+    return f"{column} IN ({quoted(values)})"
 
 
 ROLES = ("school", "personal")
-PURPOSES = ("read", "write")
+# `calendar`: the calendar-only token (ADR 0021, decision 2)
+PURPOSES = ("read", "write", "calendar")
 RUN_STATUSES = ("ok", "invalid", "error", "skipped")
 # `notice`: optional or general mail, shown once in the digest (0007)
 ITEM_KINDS = ("deadline", "todo", "notice")
@@ -52,7 +58,59 @@ CHANGE_TYPES = ("create", "update", "status")
 # `system`: changes no person or extraction made, such as an expiry (0006)
 VERSION_ACTORS = ("extraction", "user", "system")
 DIGEST_SECTIONS = ("new", "due_soon", "needs_review")
-PROPOSAL_KINDS = ("item_update",)
+PROPOSAL_KINDS = (
+    "item_update",
+    "calendar_create",
+    "calendar_update",
+    "mark_read",
+    "unsubscribe",
+)
+# Which references each proposal kind needs (migration 0009)
+PROPOSAL_SHAPE = """
+(kind = 'item_update'
+    AND item_id IS NOT NULL AND base_version IS NOT NULL
+    AND message_id IS NOT NULL AND extraction_run_id IS NOT NULL)
+OR (kind IN ('calendar_create', 'calendar_update')
+    AND item_id IS NOT NULL AND base_version IS NOT NULL
+    AND extraction_run_id IS NULL)
+OR (kind IN ('mark_read', 'unsubscribe')
+    AND message_id IS NOT NULL AND item_id IS NULL
+    AND base_version IS NULL AND extraction_run_id IS NULL)
+"""
+GRANT_KINDS = ("mark_read", "label", "archive")
+# Lowercase exact addresses, separated by single spaces once joined
+GRANT_SENDERS = (
+    "cardinality(senders) >= 1"
+    " AND array_position(senders, NULL) IS NULL"
+    " AND array_to_string(senders, ' ') = lower(array_to_string(senders, ' '))"
+    " AND array_to_string(senders, ' ') ~ '^[^@ ]+@[^@ ]+( [^@ ]+@[^@ ]+)*$'"
+)
+MAX_CYCLE_CAP = 20
+ACTION_KINDS = (
+    "mark_read",
+    "mark_unread",
+    "label_add",
+    "label_remove",
+    "archive",
+    "unarchive",
+    "calendar_create",
+    "calendar_update",
+    "calendar_delete",
+    "unsubscribe",
+)
+ACTION_STATUSES = (
+    "pending",
+    "running",
+    "refused",
+    "succeeded",
+    "failed",
+    "needs_confirmation",
+)
+# An undo has no proposal or grant; every other action has exactly one
+ACTION_SOURCE = """
+(undoes_action_id IS NULL AND num_nonnulls(proposal_id, grant_id) = 1)
+OR (undoes_action_id IS NOT NULL AND proposal_id IS NULL AND grant_id IS NULL)
+"""
 PROPOSAL_STATUSES = ("pending", "approved", "rejected", "expired", "superseded", "executed")
 # Statuses the owner decided; exactly these carry a decision time
 DECIDED_STATUSES = ("approved", "rejected", "executed")
@@ -325,16 +383,22 @@ class DigestItem(Base):
 
 
 class Proposal(Base):
-    """A change waiting for the owner's decision (ADR 0009, decisions 2 and 6).
+    """A change or action waiting for the owner's decision (ADR 0009 and 0021).
 
     Never deleted, and only `status` and `decided_at` can change after
     insert: a trigger in migration 0004 enforces both, and the allowed status
     moves. `payload_hash` is app.proposals.payload_hash(payload).
+
+    Which references a proposal needs depends on its kind (PROPOSAL_SHAPE):
+    an `item_update` has all four; a calendar proposal has an item and no
+    extraction run; `mark_read` and `unsubscribe` target an email and have
+    no item. A one-click approval is inserted already `approved`.
     """
 
     __tablename__ = "proposals"
     __table_args__ = (
         CheckConstraint(one_of("kind", PROPOSAL_KINDS), name="kind"),
+        CheckConstraint(PROPOSAL_SHAPE, name="shape"),
         CheckConstraint(one_of("status", PROPOSAL_STATUSES), name="status"),
         CheckConstraint("base_version >= 1", name="base_version"),
         CheckConstraint(f"payload_hash ~ '{HASH_PATTERN}'", name="payload_hash"),
@@ -349,29 +413,140 @@ class Proposal(Base):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     kind: Mapped[str] = mapped_column(Text)
-    # The item the change applies to
-    item_id: Mapped[uuid.UUID] = mapped_column(
+    # The item the change applies to; empty for an email action
+    item_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("items.id", ondelete="RESTRICT"),
     )
     # The item_versions.version the change was based on. A newer version of
     # the item supersedes the proposal (ADR 0009, decision 6). Not part of
     # the payload, so payload_hash does not cover it; the trigger keeps it
-    # fixed instead.
-    base_version: Mapped[int] = mapped_column(Integer)
+    # fixed instead. Empty when there is no item.
+    base_version: Mapped[int | None] = mapped_column(Integer)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
     payload_hash: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, server_default=text("'pending'"))
-    # The email and extraction run the change was detected in
-    message_id: Mapped[uuid.UUID] = mapped_column(
+    # The email the change was detected in, or the email an action targets
+    message_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("messages.id", ondelete="RESTRICT"),
     )
-    extraction_run_id: Mapped[uuid.UUID] = mapped_column(
+    # The extraction run that found an item_update; empty for other kinds
+    extraction_run_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("extraction_runs.id", ondelete="RESTRICT"),
     )
     # SINAN_PROPOSAL_TTL_DAYS after creation, or the due time if sooner
     expires_at: Mapped[datetime] = mapped_column(UTC_TS)
     # When the owner approved or rejected it
     decided_at: Mapped[datetime | None] = mapped_column(UTC_TS)
+    created_at: Mapped[datetime] = created_at()
+    updated_at: Mapped[datetime] = updated_at()
+
+
+class Grant(Base):
+    """A standing permission the owner set in the Dashboard (ADR 0021, decision 5).
+
+    Only the signed-in owner creates one; no model output or Worker path
+    does (CLAUDE.md rule 5). Never deleted, and its scope never changes:
+    after insert only `paused_at` and `revoked_at` move, and a revoke is
+    final. A trigger in migration 0009 enforces this and sets `created_at`
+    to the inserting transaction's time, so the 90-day limit holds.
+    """
+
+    __tablename__ = "grants"
+    __table_args__ = (
+        CheckConstraint(GRANT_SENDERS, name="senders"),
+        CheckConstraint(
+            f"cardinality(kinds) >= 1 AND kinds <@ ARRAY[{quoted(GRANT_KINDS)}]::text[]",
+            name="kinds",
+        ),
+        CheckConstraint(f"cycle_cap BETWEEN 1 AND {MAX_CYCLE_CAP}", name="cycle_cap"),
+        CheckConstraint(
+            "expires_at > created_at AND expires_at <= created_at + interval '90 days'",
+            name="expiry",
+        ),
+        Index(None, "account_id"),
+    )
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="RESTRICT"),
+    )
+    # Exact, lowercase sender addresses; no domains
+    senders: Mapped[list[str]] = mapped_column(ARRAY(Text))
+    kinds: Mapped[list[str]] = mapped_column(ARRAY(Text))
+    # Most actions per sync cycle; going over pauses the grant
+    cycle_cap: Mapped[int] = mapped_column(Integer, server_default=text("20"))
+    expires_at: Mapped[datetime] = mapped_column(UTC_TS)
+    paused_at: Mapped[datetime | None] = mapped_column(UTC_TS)
+    revoked_at: Mapped[datetime | None] = mapped_column(UTC_TS)
+    created_at: Mapped[datetime] = created_at()
+    updated_at: Mapped[datetime] = updated_at()
+
+
+class Action(Base):
+    """One external write, run by the Executor (ADR 0021; technical design).
+
+    Its source is exactly one of an approved proposal or a grant, except an
+    undo, which points at the action it reverts and has neither.
+    `idempotency_key` is deterministic and unique, so one action takes
+    effect once. Never deleted; after insert only its progress (status,
+    attempts, timing, result, error) changes, and `undo_payload` is set at
+    most once. A trigger in migration 0009 enforces this and the status
+    moves. `result` and `error` hold codes, never message content.
+    """
+
+    __tablename__ = "actions"
+    __table_args__ = (
+        CheckConstraint(one_of("kind", ACTION_KINDS), name="kind"),
+        CheckConstraint(one_of("status", ACTION_STATUSES), name="status"),
+        CheckConstraint(ACTION_SOURCE, name="source"),
+        CheckConstraint("undoes_action_id <> id", name="not_self"),
+        CheckConstraint(f"idempotency_key ~ '{HASH_PATTERN}'", name="idempotency_key"),
+        CheckConstraint("jsonb_typeof(target) = 'object'", name="target"),
+        CheckConstraint("attempts >= 0", name="attempts"),
+        CheckConstraint(
+            "kind <> 'unsubscribe' OR undo_payload IS NULL",
+            name="no_undo_unsubscribe",
+        ),
+        UniqueConstraint("idempotency_key"),
+        UniqueConstraint("undoes_action_id"),
+        Index(None, "status", "created_at"),
+        Index(None, "proposal_id"),
+        Index(None, "grant_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    kind: Mapped[str] = mapped_column(Text)
+    # The account whose token the action uses
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="RESTRICT"),
+    )
+    proposal_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("proposals.id", ondelete="RESTRICT"),
+    )
+    grant_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("grants.id", ondelete="RESTRICT"),
+    )
+    undoes_action_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("actions.id", ondelete="RESTRICT"),
+    )
+    # The email or item the action is about, for tracing
+    message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="RESTRICT"),
+    )
+    item_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("items.id", ondelete="RESTRICT"),
+    )
+    # Provider IDs the action writes to, such as a Gmail message ID
+    target: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    idempotency_key: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, server_default=text("'pending'"))
+    attempts: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    # What an undo needs, such as the labels before; never for unsubscribe
+    undo_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    error: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(UTC_TS)
+    finished_at: Mapped[datetime | None] = mapped_column(UTC_TS)
     created_at: Mapped[datetime] = created_at()
     updated_at: Mapped[datetime] = updated_at()
 
