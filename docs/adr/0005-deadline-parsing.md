@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-11-10
 - Decider: Menghe
+- Amended by: ADR 0022 (a weekday can settle a numeric date)
 
 ## Context
 
@@ -23,6 +24,8 @@ This is a fixed, tested rule rather than a guess. Without it, almost every deadl
 ### 2. Numeric dates always need review
 
 "11/14" and "11/12/2026" are never parsed. USC mail is usually US-format, but mail from elsewhere is not, and the parser cannot tell which. Month names ("Nov 14", "November 14th") and ISO dates ("2026-11-14") are unambiguous and are parsed.
+
+Amended by ADR 0022 (decision 5): a numeric date next to a weekday is parsed when exactly one of its readings, month/day or day/month, is a real date on that weekday. "Tue, 12/1/2026" is December 1, because January 12, 2026 is a Monday. Without a weekday, or when both readings or neither fit it, the date still needs review.
 
 ## Other rules (no decision needed, recorded for review)
 

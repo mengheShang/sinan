@@ -127,7 +127,7 @@ export function ItemCard({ item, zone }: { item: Item; zone: string }) {
       <div className={styles.row}>
         {item.course ? <span className={styles.course}>{item.course}</span> : null}
         <strong>{item.title}</strong>
-        {review ? <span className={styles.flag}>{reviewText(item.review)}</span> : null}
+        {review ? <span className={styles.flag}>{reviewText(item.review, item.due_raw)}</span> : null}
       </div>
       <p className={styles.due}>
         {item.due_at ? (

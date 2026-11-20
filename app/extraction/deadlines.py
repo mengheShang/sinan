@@ -26,8 +26,13 @@ extended by ADR 0011 and ADR 0016):
   (ADR 0016, rule 5): the email's local date plus N days or N weeks, and
   the result says the date was computed. "in N hours" or "within N hours"
   is the email's send time plus exactly N hours, with no zone or time
-  assumed (rule 5, amended). Numeric dates such as 11/14 always
-  need review, because 11/12 has two readings.
+  assumed (rule 5, amended).
+- A numeric date such as 12/1 has two readings, month/day and day/month. It
+  is accepted only next to a weekday, when exactly one reading is a real
+  date on that weekday (ADR 0022, decision 5): "Tue 12/1/2026" is Dec 1,
+  since Jan 12, 2026 is a Monday. With no weekday, or with both readings or
+  neither fitting, it needs review. A 2-digit year is 20xx; a missing year
+  follows the rule below, for each reading.
 - A missing year is inferred from the email date: the one year that puts the
   date between 30 days before and 335 days after the email.
 - A weekday alone means the first such day on or after the email date, in the
@@ -163,6 +168,7 @@ NOT_MINUTE = r"(?<![:\-+.\d])"
 DAY_FIRST_RE = re.compile(NOT_MINUTE + DAY + r"\s+" + MONTH + YEAR, re.IGNORECASE)
 ISO_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
 NUMERIC_RE = re.compile(r"\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b")
+NUMERIC_PARTS_RE = re.compile(r"\b(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?\b")
 WEEKDAY_RE = re.compile(r"\b(?:(next|this)\s+)?(" + words(WEEKDAYS) + r")\.?(?=\s|$|\b)")
 RELATIVE_RE = re.compile(r"\b(today|tonight|tomorrow)\b")
 TIME_12_RE = re.compile(r"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b")
@@ -449,6 +455,51 @@ def strictly_after(sent: date, weekday: int) -> date:
     return sent + timedelta(days=ahead)
 
 
+def numeric_year(year_s: str) -> int | None:
+    """The year of a numeric date: None when missing, 20xx for two digits.
+    A 3-digit year gives 0, which no reading accepts."""
+    if not year_s:
+        return None
+    if len(year_s) == 2:
+        return 2000 + int(year_s)
+    if len(year_s) == 3:
+        return 0
+    return int(year_s)
+
+
+def readings(match: re.Match[str]) -> set[DateParts]:
+    """Both readings of a numeric date: month/day and day/month."""
+    first_s, second_s, year_s = match.groups()
+    first, second = int(first_s), int(second_s)
+    year = numeric_year(year_s or "")
+    return {DateParts(first, second, year), DateParts(second, first, year)}
+
+
+def numeric_day(text: str, cased: str, sent: date, named: set[int]) -> DateParts | str:
+    """A numeric date settled by its weekday (ADR 0022, decision 5).
+
+    Returns the date as parts with its year, or why it needs review.
+    """
+    matches = list(NUMERIC_PARTS_RE.finditer(text))
+    if len(matches) != 1 or len(named) != 1:
+        return "numeric_date"
+    rest = NUMERIC_RE.sub(" ", text)
+    if find_date(rest, cased) is not None:
+        return "multiple_dates"
+    weekday = next(iter(named))
+    fits: set[date] = set()
+    for parts in readings(matches[0]):
+        if parts.year == 0:
+            continue
+        day = resolve_year(parts, sent)
+        if isinstance(day, date) and day.weekday() == weekday:
+            fits.add(day)
+    if len(fits) != 1:
+        return "numeric_date"
+    day = fits.pop()
+    return DateParts(day.month, day.day, day.year)
+
+
 def find_day(
     text: str,
     cased: str,
@@ -460,12 +511,14 @@ def find_day(
     phrases and `counted` the day counts of "in N days" phrases."""
     weekdays = WEEKDAY_RE.findall(text)
     relative = set(RELATIVE_RE.findall(text))
+    named = {WEEKDAYS[w] for _, w in weekdays}
     written = find_date(text, cased)
+    if written == "numeric_date":
+        written = numeric_day(text, cased, sent, named)
     if isinstance(written, str):
         return written
     if any(word == "next" for word, _ in weekdays):
         return "relative_weekday"
-    named = {WEEKDAYS[w] for _, w in weekdays}
     if counted:
         # Any other date next to a count is a second date (ADR 0016, rule 5)
         if len(counted) > 1 or after or written is not None or relative or named:
