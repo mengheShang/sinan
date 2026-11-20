@@ -29,6 +29,11 @@ The home page is computed when it is read. Nothing is stored for it. It has thre
 - **To-do:** active deadlines and to-dos with no due time, newest first. Each has an **Add due** button (decision 3). Once a due time is set, the item moves to Due.
 - **Notices:** as today (ADR 0017, ADR 0020), grouped by category.
 
+Items first found since the owner's previous visit carry a **New** tag in whichever list they are in. This keeps the digest's "what changed" view without listing an item twice.
+- The previous visit's time is kept in a browser cookie, so no table is needed.
+- A visit moves that time forward only when it comes 30 minutes or more after the last one. Reloading the page does not clear the tags.
+- Without the cookie (first visit, another browser), nothing is tagged.
+
 There is no 7-day window, no separate needs-review section and no "new since" section. The Past view (ADR 0015) and the closed-items page are unchanged.
 
 ### 2. The daily digest stops
