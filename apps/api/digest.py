@@ -1,7 +1,8 @@
 """Digest and item endpoints for the Dashboard.
 
 All sit behind the login like every other route. The Worker makes digests;
-the only writes here are the owner changing an item's status, making a
+the only writes here are the owner changing an item's status or due time
+(ADR 0022), confirming an item that needs review, making a
 notice a to-do or dismissing the notices shown (ADR 0017), which touch the
 local database alone.
 Proposed changes are in apps/api/proposals.py.
@@ -9,14 +10,16 @@ Proposed changes are in apps/api/proposals.py.
 
 import uuid
 from datetime import date, datetime
+from datetime import time as dt_time
 from typing import Annotated, Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.config import Settings, get_settings
 from app.db.digest import ItemView, latest, list_items, past_items, read_digest
+from app.db.item_due import Refused, confirm, set_due
 from app.db.item_kind import NotANotice, make_todo
 from app.db.item_status import BadMove, UnknownItem, set_status
 from app.db.notice_dismiss import MAX_IDS, dismiss_all
@@ -206,6 +209,84 @@ def change_status(item_id: uuid.UUID, body: StatusBody, session: SessionDep) -> 
         raise HTTPException(status.HTTP_409_CONFLICT, detail) from exc
     session.commit()
     return StatusOut(status=body.status, version=version.version)
+
+
+class DueBody(BaseModel):
+    # A local date and time in SINAN_TIMEZONE; no time means 23:59
+    date: date
+    time: dt_time | None = None
+    # The model's suggestion the form was prefilled from (ADR 0022, decision 4)
+    suggestion_id: uuid.UUID | None = None
+
+    @field_validator("time")
+    @classmethod
+    def wall_time(cls, value: dt_time | None) -> dt_time | None:
+        if value is None:
+            return None
+        if value.tzinfo is not None or value.second or value.microsecond:
+            raise ValueError("time must be a local hour and minute, like 17:00")
+        return value
+
+
+class DueOut(BaseModel):
+    # Canonical UTC text, such as 2026-12-02T07:59:00Z
+    due_at: str
+    time_assumed: bool
+    version: int
+
+
+# Why a due time or confirm was refused, as the API reports it
+REFUSED = {
+    "notice": (status.HTTP_409_CONFLICT, "A notice has no due time; make it a to-do first"),
+    "closed": (status.HTTP_409_CONFLICT, "The item is closed; reopen it first"),
+    "nonexistent_time": (
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "That time is skipped by a clock change",
+    ),
+    "ambiguous_time": (
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "That time happens twice on a clock change",
+    ),
+    "not_review": (status.HTTP_409_CONFLICT, "The item does not need review"),
+    "no_due": (status.HTTP_409_CONFLICT, "The item has no due time; set one instead"),
+}
+
+
+def refused(exc: Refused) -> HTTPException:
+    code, detail = REFUSED[exc.code]
+    return HTTPException(code, detail)
+
+
+@router.post("/items/{item_id}/due")
+def change_due(
+    item_id: uuid.UUID, body: DueBody, session: SessionDep, settings: SettingsDep
+) -> DueOut:
+    """Set or change a due time (ADR 0022, decision 3). 409 or 422 when refused."""
+    zone = settings.zone()
+    try:
+        version = set_due(session, item_id, body.date, body.time, zone, body.suggestion_id)
+    except UnknownItem as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown item") from exc
+    except Refused as exc:
+        session.rollback()
+        raise refused(exc) from exc
+    session.commit()
+    due_at = str(version.after["due_at"])
+    return DueOut(due_at=due_at, time_assumed=body.time is None, version=version.version)
+
+
+@router.post("/items/{item_id}/confirm")
+def confirm_item(item_id: uuid.UUID, session: SessionDep) -> StatusOut:
+    """Confirm an item that needs review and has a due time. 409 otherwise."""
+    try:
+        version = confirm(session, item_id)
+    except UnknownItem as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown item") from exc
+    except Refused as exc:
+        session.rollback()
+        raise refused(exc) from exc
+    session.commit()
+    return StatusOut(status="open", version=version.version)
 
 
 class KindBody(BaseModel):
