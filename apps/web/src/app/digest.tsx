@@ -3,11 +3,13 @@
 // 401 sends the browser to the login page.
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { localParts } from "@/lib/due";
 import { localDate, localTime, reviewText } from "@/lib/format";
 import { AssumedNote } from "./assumed";
 import { apiFetch } from "@/lib/session";
 import styles from "./digest.module.css";
 import { dismissNotices, makeTodo, setStatus } from "./items/actions";
+import { ConfirmButton, DueForm } from "./items/due-form";
 import { ProposalList } from "./proposals/list";
 import type { Proposal } from "./proposals/types";
 
@@ -120,6 +122,32 @@ function StatusButtons({ item }: { item: Item }) {
   );
 }
 
+// Add due, Edit due and Confirm on active deadlines and to-dos (ADR 0022).
+// Confirm on an item with no due time opens the due form instead. The key
+// remounts the form once the due time changes, so it closes after a save.
+function DueControls({ item, zone }: { item: Item; zone: string }) {
+  if (isClosed(item) || item.kind === "notice") {
+    return null;
+  }
+  const review = item.status === "needs_review";
+  const parts = localParts(item.due_at, zone);
+  const key = item.due_at ?? "none";
+  if (review && !item.due_at) {
+    return (
+      <div className={styles.actions}>
+        <DueForm key={key} id={item.id} label="Confirm" {...parts} zone={zone} />
+      </div>
+    );
+  }
+  const label = item.due_at ? "Edit due" : "Add due";
+  return (
+    <div className={styles.actions}>
+      {review ? <ConfirmButton id={item.id} /> : null}
+      <DueForm key={key} id={item.id} label={label} {...parts} zone={zone} />
+    </div>
+  );
+}
+
 export function ItemCard({ item, zone }: { item: Item; zone: string }) {
   const review = item.status === "needs_review";
   return (
@@ -141,6 +169,7 @@ export function ItemCard({ item, zone }: { item: Item; zone: string }) {
           <>No due time</>
         )}
       </p>
+      <DueControls item={item} zone={zone} />
       {item.evidence ? <blockquote className={styles.evidence}>{item.evidence}</blockquote> : null}
       <p className={styles.source}>
         {item.subject ? <span>{item.subject}</span> : null}
