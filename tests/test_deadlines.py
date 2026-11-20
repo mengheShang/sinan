@@ -551,3 +551,53 @@ def test_needs_review_hours(raw: str, reason: str) -> None:
 def test_only_counted_dates_are_marked_computed() -> None:
     for raw, sent, *_ in PARSED_ADR_0016:
         assert not parse_due(raw, sent).date_computed
+
+
+# ADR 0022, decision 5: a weekday can settle a numeric date. SENT is Tue Nov 10
+# 2026; Dec 1, 2026 is a Tuesday and Jan 12, 2026 a Monday.
+PARSED_NUMERIC = [
+    # Exactly one reading falls on the weekday
+    ("Tue, 12/1/2026", SENT, utc(2026, 12, 2, 7, 59)),
+    ("Mon, 12/1/2026", SENT, utc(2026, 1, 13, 7, 59)),
+    ("Tuesday 12/1/2026 5pm PT", SENT, utc(2026, 12, 2, 1, 0)),
+    # A 2-digit year is 20xx
+    ("Tue 12/1/26 5pm PT", SENT, utc(2026, 12, 2, 1, 0)),
+    # One reading is not a date: Nov 30, 2026 is a Monday
+    ("Mon 30/11 5pm PT", SENT, utc(2026, 12, 1, 1, 0)),
+    # A missing year: Jan 12, 2027 is a Tuesday, Dec 1, 2027 a Wednesday
+    ("Tue 1/12/2027 5pm PT", SENT, utc(2027, 1, 13, 1, 0)),
+    # Both readings are the same day
+    ("Tue 5/5/2026 5pm PT", SENT, utc(2026, 5, 6, 0, 0)),
+]
+
+
+@pytest.mark.parametrize(("raw", "sent", "expected"), PARSED_NUMERIC)
+def test_parsed_numeric(raw: str, sent: datetime, expected: datetime) -> None:
+    assert parse_due(raw, sent).due_at == expected
+
+
+NEEDS_REVIEW_NUMERIC = [
+    # No weekday
+    ("12/1/2026", "numeric_date"),
+    ("12/1/2026 5pm PT", "numeric_date"),
+    # Neither reading falls on the weekday
+    ("Wed 12/1/2026", "numeric_date"),
+    ("Wed 5/5/2026", "numeric_date"),
+    # Both readings fit: with no year, Dec 1, 2026 and Jan 12, 2027 are Tuesdays
+    ("Tue 12/1 5pm PT", "numeric_date"),
+    # Neither reading is a date, or the year is not a year
+    ("Tue 13/13/2026", "numeric_date"),
+    ("Tue 12/1/202", "numeric_date"),
+    # Two weekdays, or two numeric dates
+    ("Tue or Wed 12/1/2026", "numeric_date"),
+    ("Tue 12/1/2026 or 12/2/2026", "numeric_date"),
+    # A second date, or "next"
+    ("Tue 12/1/2026 or Nov 3", "multiple_dates"),
+    ("Tue 12/1/2026 tomorrow", "multiple_dates"),
+    ("next Tue 12/1/2026", "relative_weekday"),
+]
+
+
+@pytest.mark.parametrize(("raw", "reason"), NEEDS_REVIEW_NUMERIC)
+def test_needs_review_numeric(raw: str, reason: str) -> None:
+    assert parse_due(raw, SENT) == DueParse(None, reason)

@@ -1,3 +1,5 @@
+import { numericLabel } from "./numeric";
+
 // Display helpers for the digest. The API sends UTC; the digest shows times in
 // the owner's zone (SINAN_TIMEZONE), with the zone name so nothing is guessed.
 
@@ -41,7 +43,6 @@ const REVIEW_TEXT: Record<string, string> = {
   vague_time: "The time is tied to a class or a part of the day",
   time_outside_due: "The quoted text gives a time the due time left out",
   multiple_times: "Two different times",
-  numeric_date: "Numeric date: 11/12 could mean two days",
   multiple_dates: "Two different dates",
   invalid_date: "The date does not exist",
   year_unclear: "The year is unclear",
@@ -62,9 +63,12 @@ const REVIEW_TEXT: Record<string, string> = {
     "From a sender Sinan cannot verify: check that it is real before relying on it",
 };
 
-export function reviewText(code: string | null): string {
+export function reviewText(code: string | null, dueRaw?: string | null): string {
   if (!code) {
     return "Needs a look";
+  }
+  if (code === "numeric_date") {
+    return numericLabel(dueRaw);
   }
   return REVIEW_TEXT[code] ?? code;
 }
