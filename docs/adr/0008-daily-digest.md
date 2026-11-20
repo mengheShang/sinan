@@ -4,6 +4,7 @@
 - Date: 2026-11-11
 - Decider: Menghe
 - Amended by: ADR 0015 (past and stale items leave the digest)
+- Superseded by: ADR 0022 (a live home page; the digest stops)
 
 ## Context
 
