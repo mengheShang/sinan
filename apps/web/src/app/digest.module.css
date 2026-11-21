@@ -251,3 +251,22 @@
     color: #fee2e2;
   }
 }
+
+/* The due form (ADR 0022): a button that opens a date and optional time */
+.dueForm summary {
+  display: inline-block;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 10px;
+  border: 1px solid #a3a3a3;
+  border-radius: 4px;
+}
+
+.dueForm form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+  font-size: 13px;
+}
