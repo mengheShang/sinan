@@ -108,6 +108,30 @@ class FakeLinkPicker:
         return NO_LINK
 
 
+NO_SUGGESTION = '{"date": null, "time": null, "quote": null}'
+
+
+class FakeSuggester:
+    """Returns canned due-time suggestions, picked by a marker in the text.
+
+    With no marker found it answers "no due time", so the demo suggests
+    nothing unless a reply is given for it.
+    """
+
+    model = "fake-suggester"
+
+    def __init__(self, responses: dict[str, str] | None = None) -> None:
+        self._responses = responses or {}
+        self.calls: list[str] = []
+
+    def suggest(self, prompt: str, text: str) -> str:
+        self.calls.append(text)
+        for marker, result in self._responses.items():
+            if marker in text:
+                return result
+        return NO_SUGGESTION
+
+
 class FakeOAuth:
     """A stand-in for Google's consent screen and token endpoint.
 

@@ -15,6 +15,7 @@ from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -650,4 +651,63 @@ class EvalRun(Base):
     replies: Mapped[dict[str, str]] = mapped_column(JSONB)
     link_replies: Mapped[dict[str, str]] = mapped_column(JSONB)
     auth: Mapped[dict[str, str]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = created_at()
+
+
+# Why a due suggestion holds no due time (ADR 0022, decision 4)
+SUGGESTION_REASONS = (
+    # The model said the email gives no due time
+    "none",
+    # The reply was refused by validation
+    "bad_json",
+    "bad_schema",
+    "quote_not_found",
+    "invalid_date",
+    "out_of_range",
+    "nonexistent_time",
+    "ambiguous_time",
+    # The call failed for this item
+    "error",
+)
+
+
+class DueSuggestion(Base):
+    """The model's suggested due time for an item without one (ADR 0022, decision 4).
+
+    One row per item, so an item is asked about at most once. A row with no
+    `due_at` records why there is none, so the item is not asked again.
+    The suggestion only prefills the owner's due form; nothing applies it.
+
+    Append-only: a trigger rejects UPDATE, DELETE and TRUNCATE.
+    """
+
+    __tablename__ = "due_suggestions"
+    __table_args__ = (
+        CheckConstraint(one_of("reason", SUGGESTION_REASONS), name="reason"),
+        CheckConstraint(f"prompt_hash ~ '{HASH_PATTERN}'", name="prompt_hash"),
+        # A suggestion has its quote and no reason; no suggestion has a reason
+        CheckConstraint(
+            "(due_at IS NOT NULL AND quote IS NOT NULL AND reason IS NULL)"
+            " OR (due_at IS NULL AND reason IS NOT NULL)",
+            name="shape",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    item_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("items.id", ondelete="RESTRICT"), unique=True
+    )
+    # The email the model read: the one that created the item
+    message_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("messages.id", ondelete="RESTRICT"))
+    due_at: Mapped[datetime | None] = mapped_column(UTC_TS)
+    # The model gives a local date and time; the zone is always SINAN_TIMEZONE
+    zone_assumed: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    # No time was given, so 23:59 was used
+    time_assumed: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    # Text from the email that supports the date, checked to appear in it
+    quote: Mapped[str | None] = mapped_column(Text)
+    reason: Mapped[str | None] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(Text)
+    prompt_version: Mapped[str] = mapped_column(Text)
+    prompt_hash: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = created_at()

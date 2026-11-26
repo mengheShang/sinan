@@ -19,7 +19,10 @@ async function detail(resp: Response, fallback: string): Promise<string> {
 
 export async function saveDue(_prev: DueState, form: FormData): Promise<DueState> {
   const id = String(form.get("id") ?? "");
-  const body = dueBody(String(form.get("date") ?? ""), String(form.get("time") ?? ""));
+  const date = String(form.get("date") ?? "");
+  const time = String(form.get("time") ?? "");
+  const suggestion = String(form.get("suggestion_id") ?? "");
+  const body = dueBody(date, time, suggestion);
   if (!id) {
     return { message: "Nothing to save." };
   }

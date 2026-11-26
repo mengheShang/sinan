@@ -78,6 +78,9 @@ class Settings(Common):
     sinan_llm_model: str = "claude-haiku-5-5"
     # Most emails sent to the model per Worker cycle; the rest wait (ADR 0007)
     sinan_extract_per_cycle: int = Field(default=100, ge=1)
+    # Most items asked about for a suggested due time per cycle; 0 turns the
+    # step off (ADR 0022, decision 4)
+    sinan_suggest_per_cycle: int = Field(default=20, ge=0, le=200)
     # Local prefilter rules with real senders; the example rules are used when
     # this file does not exist (ADR 0006)
     sinan_prefilter_rules: str = "config/prefilter.toml"

@@ -4,6 +4,7 @@
 export type LocalParts = { date: string; time: string };
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TIME = /^\d{2}:\d{2}$/;
 
 // A UTC time as the owner's local date and time, for prefilling the form:
@@ -30,17 +31,27 @@ export function localParts(value: string | null, timeZone: string): LocalParts {
 
 // The request body for POST /items/{id}/due, or null when the input is not
 // a date (and an optional hour and minute) as the form sends them.
-export function dueBody(date: string, time: string): { date: string; time?: string } | null {
+export type DueBody = { date: string; time?: string; suggestion_id?: string };
+
+// `suggestion` is the model's suggestion the form was prefilled from, or "".
+export function dueBody(date: string, time: string, suggestion = ""): DueBody | null {
   if (!DATE.test(date)) {
     return null;
   }
-  if (time === "") {
-    return { date };
-  }
-  if (!TIME.test(time)) {
+  if (suggestion !== "" && !UUID.test(suggestion)) {
     return null;
   }
-  return { date, time };
+  const body: DueBody = { date };
+  if (time !== "") {
+    if (!TIME.test(time)) {
+      return null;
+    }
+    body.time = time;
+  }
+  if (suggestion !== "") {
+    body.suggestion_id = suggestion;
+  }
+  return body;
 }
 
 // What a due form or Confirm button shows after its action

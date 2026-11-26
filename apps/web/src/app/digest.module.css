@@ -300,3 +300,11 @@
     color: #dbeafe;
   }
 }
+
+/* The model's suggested due time in the due form (ADR 0022) */
+.suggested {
+  font-size: 13px;
+  margin: 6px 0 0;
+  padding: 4px 8px;
+  border-left: 3px solid #a3a3a3;
+}
