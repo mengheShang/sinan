@@ -19,6 +19,13 @@ For each message that has never been extracted, under any prompt version:
    built by deterministic code (ADR 0019); a pick also becomes only a
    pending proposal. A change left without a target is saved as a new item
    marked needs_review. A notice is never matched (ADR 0017).
+   ADR 0023: an update whose due time did not parse is matched the same
+   way, and one target is flagged needs_review (`update_unparsed`) instead
+   of a new item being saved. An item the model called new is matched
+   first too: the same title words need no model call, a similar title asks
+   the link picker with the repeat prompt. A match with no or the same due
+   time saves nothing; a different one becomes a pending proposal that
+   keeps the new item, which rejecting saves.
 5. Sender trust (ADR 0010) is decided from the sender and Gmail's stored
    authentication results, never the body. A deadline or to-do from an
    untrusted sender is saved as needs_review (`untrusted_sender`), and a
@@ -52,8 +59,16 @@ from app.extraction.link_reply import Code
 from app.extraction.prefilter import Envelope, Rules, decide
 from app.extraction.prompt import PROMPT, PROMPT_HASH, PROMPT_VERSION, prepare
 from app.extraction.trust import Trust, sender_trust, with_school
-from app.extraction.validate import Checked, ValidItem, check, hold_untrusted, is_change
-from app.items.changes import Link, Source, propose
+from app.extraction.validate import (
+    Checked,
+    ValidItem,
+    check,
+    hold_untrusted,
+    is_change,
+    is_new_candidate,
+    is_unparsed_change,
+)
+from app.items.changes import Link, Source, find, find_repeat, mark_unparsed, propose
 from app.items.linking import FAILED, NO_CHOICES
 from app.providers.llm import Extractor, ExtractorError, LinkPicker
 
@@ -76,6 +91,10 @@ class Counts:
     unchanged: int = 0
     stale: int = 0
     ambiguous: int = 0
+    # ADR 0023: new items that repeat an existing one and saved nothing, and
+    # items flagged because a later change's due time did not parse
+    repeats: int = 0
+    marked: int = 0
     # The link step (ADR 0019): model calls, picks, refused replies, failed
     # calls, and proposals linked by the model
     link_asked: int = 0
@@ -101,6 +120,8 @@ class Counts:
             "unchanged": self.unchanged,
             "stale": self.stale,
             "ambiguous": self.ambiguous,
+            "repeats": self.repeats,
+            "marked": self.marked,
             "link_prompt_version": LINK_PROMPT_VERSION,
             "link_asked": self.link_asked,
             "link_picked": self.link_picked,
@@ -249,6 +270,64 @@ def save_change(
     return 1
 
 
+def save_unparsed(
+    session: Session, item: ValidItem, source: Source, ctx: Context, counts: Counts
+) -> int:
+    """Flag the item an unparsed change refers to, or save the change as a
+    review item when it has no single target (ADR 0023, decision 2)."""
+    link = find(session, item, source, ctx.picker)
+    count_link(link, counts)
+    if link.target is None:
+        if link.matched > 1:
+            counts.ambiguous += 1
+        save_item(session, item, source.message, source.run)
+        return 1
+    return save_unparsed_on(session, item, source, link, counts)
+
+
+def save_new(
+    session: Session, item: ValidItem, source: Source, ctx: Context, counts: Counts
+) -> int:
+    """Save an item the model called new, unless it repeats or changes an
+    existing one (ADR 0023). The same title is matched without the model;
+    a similar one is asked about when a picker is given (decision 4)."""
+    link = find_repeat(session, item, source, ctx.picker)
+    count_link(link, counts)
+    if link.target is None:
+        save_item(session, item, source.message, source.run)
+        return 1
+    if item.due_at is None and item.due_raw is not None:
+        # A due phrase that did not parse: flag the item it repeats
+        return save_unparsed_on(session, item, source, link, counts)
+    if item.due_at is None:
+        counts.repeats += 1
+        return 0
+    new_item = after_fields(item)
+    found = propose(session, item, source, ctx.now, ctx.ttl_days, ctx.home, None, new_item, link)
+    result, _ = found
+    if result == "proposed":
+        counts.proposals += 1
+        if link.path == "llm":
+            counts.llm_proposals += 1
+        return 0
+    if result == "stale":
+        counts.stale += 1
+        return 0
+    counts.repeats += 1
+    return 0
+
+
+def save_unparsed_on(
+    session: Session, item: ValidItem, source: Source, link: Link, counts: Counts
+) -> int:
+    result = mark_unparsed(session, item, source, link)
+    if result == "stale":
+        counts.stale += 1
+    else:
+        counts.marked += 1
+    return 0
+
+
 def save_checked(
     session: Session, msg: Message, checked: Checked, ctx: Context, counts: Counts
 ) -> int:
@@ -262,6 +341,12 @@ def save_checked(
     for item in checked.items:
         if is_change(item):
             saved += save_change(session, item, source, ctx, counts)
+            continue
+        if is_unparsed_change(item):
+            saved += save_unparsed(session, item, source, ctx, counts)
+            continue
+        if is_new_candidate(item):
+            saved += save_new(session, item, source, ctx, counts)
             continue
         save_item(session, item, msg, run)
         saved += 1

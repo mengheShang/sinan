@@ -204,10 +204,14 @@ def test_several_candidates_ask_the_link_step(session: Session) -> None:
     mail(session, POSTED, 0)
     mail(session, DRAFT, 1)
     mail(session, SAME_WORDS, 24)
-    # Newest first: the draft is choice 1, the problem set choice 2
-    picker = FakeLinkPicker({"<choices>": '{"target": 2}'})
+    # Newest first: the draft is choice 1, the problem set choice 2. The
+    # draft itself was first asked about as a possible repeat (ADR 0023),
+    # and the fake answers null to that, so it is saved as its own item
+    picker = FakeLinkPicker({"<change>": '{"target": 2}'})
     extract(session, picker)
-    assert len(picker.calls) == 1
+    asked_repeat, asked_change = picker.calls
+    assert "<item>" in asked_repeat and "<change>" not in asked_repeat
+    assert "<change>" in asked_change
     (proposal,) = proposals(session)
     target = session.get_one(Item, proposal.item_id)
     assert target.title == "Supply curves problem set"

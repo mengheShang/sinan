@@ -28,6 +28,7 @@ here do not commit; the caller does.
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -40,6 +41,7 @@ from app.proposals import (
     ITEM_UPDATE,
     SUPERSEDED,
     VALID,
+    new_item_of,
     parse_utc,
     payload_hash,
     validity,
@@ -280,10 +282,56 @@ def approve(session: Session, proposal_id: uuid.UUID, shown: str, now: datetime)
     return Applied(proposal.id, item_id, number)
 
 
-def reject(session: Session, proposal_id: uuid.UUID, now: datetime) -> None:
-    """Reject a pending proposal. The item stays as it is."""
+def save_rejected(session: Session, proposal: Proposal, new_item: dict[str, Any]) -> uuid.UUID:
+    """Save the new item a rejected create-made proposal held (ADR 0023,
+    decision 5), exactly as extraction would have saved it: its own row and
+    a create version pointing at the proposal's email, run and evidence."""
+    due_text = new_item.get("due_at")
+    due_at = datetime.fromisoformat(due_text) if isinstance(due_text, str) else None
+    row = Item(
+        kind=new_item["kind"],
+        course=new_item.get("course"),
+        title=new_item["title"],
+        due_raw=new_item.get("due_raw"),
+        due_at=due_at,
+        status=new_item["status"],
+    )
+    session.add(row)
+    session.flush()
+    version = ItemVersion(
+        item_id=row.id,
+        version=1,
+        change_type="create",
+        actor="extraction",
+        after=new_item,
+        evidence=proposal.payload.get("evidence"),
+        message_id=proposal.message_id,
+        extraction_run_id=proposal.extraction_run_id,
+    )
+    session.add(version)
+    session.flush()
+    return row.id
+
+
+def reject(session: Session, proposal_id: uuid.UUID, now: datetime) -> uuid.UUID | None:
+    """Reject a pending proposal. The item stays as it is.
+
+    A proposal made from an item the model called new (ADR 0023) holds
+    that item; rejecting saves it as a separate item, after checking the
+    stored payload against its hash. Returns the saved item's ID, or None.
+    """
     proposal = decidable(session, proposal_id, now)
+    new_item = new_item_of(proposal.payload)
+    if new_item is not None and payload_hash(proposal.payload) != proposal.payload_hash:
+        refuse(session, proposal)
+        raise HashMismatch()
     proposal.status = "rejected"
     proposal.decided_at = now
-    session.add(event("rejected", proposal, "user", {"from": "pending", "to": "rejected"}))
+    data: dict[str, object] = {"from": "pending", "to": "rejected"}
+    saved = None
+    if new_item is not None:
+        saved = save_rejected(session, proposal, new_item)
+        data["saved_item_id"] = str(saved)
+    session.add(event("rejected", proposal, "user", data))
     session.flush()
+    return saved

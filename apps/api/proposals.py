@@ -27,7 +27,7 @@ from app.actions.proposals import (
 )
 from app.db.models import Account, Item, Message, Proposal
 from app.items.assumed import assumed_of
-from app.proposals import HASH_PATTERN, ITEM_UPDATE, Link, link_of
+from app.proposals import HASH_PATTERN, ITEM_UPDATE, Link, link_of, new_item_of
 from apps.api.clock import ClockDep
 from apps.api.digest import SettingsDep
 from apps.api.oauth import SessionDep
@@ -61,6 +61,9 @@ class ProposalOut(BaseModel):
     # How the item was chosen (ADR 0019); "llm" gets a badge on the Dashboard.
     # Part of the hashed payload; older payloads without it read as deterministic
     link: Link
+    # Made from an email the model read as a new item that matched this one
+    # (ADR 0023); rejecting it saves that item separately
+    from_new_item: bool
     # Sent back on approval, so the owner approves exactly what was shown
     payload_hash: str
     created_at: datetime
@@ -110,6 +113,7 @@ def to_out(row: Any, state: str, live: bool) -> ProposalOut:
         after=due_out(payload.get("after")),
         evidence=evidence if isinstance(evidence, str) else None,
         link=link_of(payload),
+        from_new_item=new_item_of(payload) is not None,
         payload_hash=proposal.payload_hash,
         created_at=proposal.created_at,
         expires_at=proposal.expires_at,
@@ -197,7 +201,8 @@ def approve_one(
 
 @router.post("/proposals/{proposal_id}/reject")
 def reject_one(proposal_id: uuid.UUID, session: SessionDep, clock: ClockDep) -> DecisionOut:
-    """Reject the change; the item stays as it is. 409 when no longer pending."""
+    """Reject the change; the item stays as it is. A change made from a new
+    item saves that item separately (ADR 0023). 409 when no longer pending."""
     try:
         reject(session, proposal_id, clock())
     except UnknownProposal as exc:
@@ -205,5 +210,9 @@ def reject_one(proposal_id: uuid.UUID, session: SessionDep, clock: ClockDep) -> 
     except NotPending as exc:
         session.commit()
         raise not_pending(exc) from exc
+    except HashMismatch as exc:
+        # Keep the refusal's audit event; nothing was rejected or saved
+        session.commit()
+        raise HTTPException(status.HTTP_409_CONFLICT, "Proposal does not match") from exc
     session.commit()
     return DecisionOut(status="rejected")

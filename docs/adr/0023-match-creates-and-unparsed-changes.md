@@ -40,9 +40,17 @@ An `update` whose due time does not parse is matched like a parsed one, determin
 - Notices are never matched (ADR 0017), and an untrusted sender's items are never matched or proposed (ADR 0010).
 - The model still only classifies; deterministic code decides every match. A proposal still needs the owner's approval before any due time changes.
 
-### 4. Creates use the deterministic matcher only
+### 4. The same title needs no model; a similar one asks the model
 
-Decision 1 does not use the link picker (ADR 0019). Asking the model for every new item would add a model call to almost every email, and most new items really are new. Changes (`update`) keep the link picker. Decided by the owner on 2026-11-26.
+The deterministic matcher only finds candidates. Then:
+
+- One candidate with the same title words, after the course is removed ("PA5" and "pa5"), is the match, with no model call.
+- Otherwise, when there are candidates (similar titles, or several), the model is asked once whether the new item is one of them, with a separate, versioned prompt (`repeat-v1`). Like the link step of ADR 0019, it sees the fenced email and a numbered list built by deterministic code, returns only a number or null, and its answer is checked against the list. The prompt says that a draft and its final version, a part of an assignment, or a quiz and its retake are different tasks, and that null is better than a wrong pick.
+- No pick, a refused reply, a failed call, or no model in live mode without an API key: the item is saved as new. Nothing is lost when the model is unsure.
+
+The first draft of this decision (2026-11-26) used the deterministic matcher alone. A test showed that "Problem set 4 draft" would then count as a repeat of "Problem set 4" with the same due time and be dropped, so the owner moved similar titles to the model the same day. Items with no similar title are never sent to the model, so most new items cost no extra call.
+
+An item whose due phrase did not parse and that matches one existing item is flagged like an unparsed change (decision 2).
 
 ### 5. Rejecting a proposal that came from a create saves the new item
 

@@ -20,6 +20,11 @@ time parsed (ADR 0009, decisions 2 and 6; technical design "DDL changes"):
 - A change that gives the time the item already has proposes nothing (it
   still supersedes older pending proposals, since it confirms that time).
 
+ADR 0023 adds two paths. `find_repeat` matches an item the model called
+new: the same title words link it without the model, a similar title asks
+the picker with the repeat prompt. `mark_unparsed` flags the target of a
+change whose due time did not parse, keeping its due time.
+
 Only local rows are written: the proposal and audit events with IDs,
 statuses and counts. The creation event says which path linked the change
 (`deterministic` or `llm`) and how many candidates that path had. Nothing
@@ -37,20 +42,28 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.db.models import AuditEvent, ExtractionRun, Item, ItemVersion, Message, Proposal
-from app.extraction.link_prompt import LINK_PROMPT_HASH, LINK_PROMPT_VERSION
+from app.extraction.link_prompt import (
+    LINK_PROMPT_HASH,
+    LINK_PROMPT_VERSION,
+    REPEAT_PROMPT_HASH,
+    REPEAT_PROMPT_VERSION,
+)
 from app.extraction.prompt import prepare
 from app.extraction.validate import ValidItem
 from app.items.assumed import Assumed, assumed_of
 from app.items.carry import carry_time
 from app.items.linking import Pick, ask
-from app.items.matching import Known, choices, match
+from app.items.matching import MAX_CHOICES, Known, candidates, choices, match, same_title
 from app.proposals import DETERMINISTIC, ITEM_UPDATE, expiry, item_update, payload_hash
 from app.proposals import Link as Path
 from app.providers.llm import LinkPicker
 
 ACTIVE = ("open", "needs_review")
 
-Result = Literal["proposed", "unchanged", "stale", "several", "none"]
+Result = Literal["proposed", "unchanged", "stale", "several", "none", "marked"]
+# Review code for an item a later email changed with a due time that did
+# not parse (ADR 0023, decision 2)
+UNPARSED = "update_unparsed"
 
 
 @dataclass(frozen=True)
@@ -79,6 +92,8 @@ class Link:
     # The model's answer, when it was asked
     pick: Pick[uuid.UUID] | None = None
     model: str | None = None
+    # The model was asked whether a new item repeats one (ADR 0023)
+    repeat: bool = False
 
     def audit_data(self) -> dict[str, Any]:
         """The creation event's fields for this link. Never any text."""
@@ -90,8 +105,8 @@ class Link:
             "candidates": shown,
             "matched": self.matched,
             "link_model": self.model,
-            "link_prompt_version": LINK_PROMPT_VERSION,
-            "link_prompt_hash": LINK_PROMPT_HASH,
+            "link_prompt_version": REPEAT_PROMPT_VERSION if self.repeat else LINK_PROMPT_VERSION,
+            "link_prompt_hash": REPEAT_PROMPT_HASH if self.repeat else LINK_PROMPT_HASH,
         }
 
 
@@ -212,6 +227,31 @@ def supersede_older(session: Session, item_id: uuid.UUID, sent_at: datetime) -> 
             session.add(event("superseded", proposal, "worker", data))
 
 
+def find_repeat(
+    session: Session, item: ValidItem, source: Source, picker: LinkPicker | None
+) -> Link:
+    """The existing item a new item repeats, if any (ADR 0023, decision 4).
+
+    One candidate with the same title words is the item, with no model call.
+    Otherwise, when the matcher finds candidates and a picker is given, the
+    model is asked once whether the item is one of them. No candidate, no
+    picker, or no pick: no target, so the item is saved as new.
+    """
+    known = pool(session, source.message.id)
+    found = candidates(item.course, item.title, known)
+    if not found:
+        return Link(None, None, 0)
+    exact = [k for k in found if same_title(item.course, item.title, k)]
+    if len(exact) == 1:
+        return Link(exact[0].key, "deterministic", len(found))
+    if picker is None:
+        return Link(None, None, len(found))
+    options = found[-MAX_CHOICES:][::-1]
+    picked = ask(picker.pick, email_text(source), item, options, repeat=True)
+    path: Path | None = "llm" if picked.target is not None else None
+    return Link(picked.target, path, len(found), picked, picker.model, repeat=True)
+
+
 def create(
     session: Session,
     item: ValidItem,
@@ -219,6 +259,7 @@ def create(
     source: Source,
     timing: tuple[datetime, int],
     link: Link,
+    new_item: dict[str, Any] | None = None,
 ) -> Proposal:
     """A pending proposal. `timing` is the creation time and the TTL in days."""
     now, ttl = timing
@@ -228,7 +269,7 @@ def create(
     old = current_assumed(session, target.id)
     new = Assumed(item.zone_assumed, item.time_assumed, item.date_computed, item.time_carried)
     path = link.path or DETERMINISTIC
-    payload = item_update(str(target.id), before, after, item.evidence, old, new, path)
+    payload = item_update(str(target.id), before, after, item.evidence, old, new, path, new_item)
     proposal = Proposal(
         kind=ITEM_UPDATE,
         item_id=target.id,
@@ -254,14 +295,18 @@ def propose(
     ttl: int,
     home: tzinfo,
     picker: LinkPicker | None = None,
+    new_item: dict[str, Any] | None = None,
+    linked: Link | None = None,
 ) -> tuple[Result, Link]:
     """Link one extracted change and propose it when it has a target.
 
     `home` is SINAN_TIMEZONE, for reading the item's zone when its due time
     names none. `picker` is the link step (ADR 0019); without it only the
-    deterministic matcher links.
+    deterministic matcher links. `new_item` is set for an item the model
+    called new (ADR 0023): the proposal keeps it, so rejecting saves it.
+    `linked` is a link already found, which skips the lookup.
     """
-    link = find(session, item, source, picker)
+    link = linked if linked is not None else find(session, item, source, picker)
     if link.target is None:
         unlinked: Result = "several" if link.matched > 1 else "none"
         return unlinked, link
@@ -274,5 +319,49 @@ def propose(
     item = carry_time(item, target.due_raw, target.due_at, flags, home)
     if target.due_at == item.due_at:
         return "unchanged", link
-    create(session, item, target, source, (now, ttl), link)
+    create(session, item, target, source, (now, ttl), link, new_item)
     return "proposed", link
+
+
+def mark_unparsed(session: Session, item: ValidItem, source: Source, link: Link) -> Result:
+    """Flag the linked item for review: a later email changed its due time,
+    but the new one did not parse (ADR 0023, decision 2).
+
+    The item keeps its due time. The version points at the new email and
+    its evidence, so the Dashboard shows the quote with the flag. An older
+    email changes nothing. `link.target` must be set.
+    """
+    if link.target is None:
+        raise ValueError("mark_unparsed needs a target")
+    lock = select(Item).where(Item.id == link.target).with_for_update()
+    target = session.execute(lock).scalar_one()
+    if is_stale(session, target.id, source.sent_at):
+        return "stale"
+    supersede_older(session, target.id, source.sent_at)
+    number = current_version(session, target.id) + 1
+    old = target.status
+    after = {"status": "needs_review", "review": UNPARSED, "new_due_raw": item.due_raw}
+    version = ItemVersion(
+        item_id=target.id,
+        version=number,
+        change_type="status",
+        actor="extraction",
+        before={"status": old},
+        after=after,
+        evidence=item.evidence,
+        message_id=source.message.id,
+        extraction_run_id=source.run.id,
+    )
+    target.status = "needs_review"
+    session.add(version)
+    data = {"from": old, "to": "needs_review", "version": number, "review": UNPARSED}
+    audit = AuditEvent(
+        event_type="item.status",
+        actor="worker",
+        subject_type="item",
+        subject_id=target.id,
+        data={**data, **link.audit_data()},
+    )
+    session.add(audit)
+    session.flush()
+    return "marked"
