@@ -554,20 +554,26 @@ def test_only_counted_dates_are_marked_computed() -> None:
 
 
 # ADR 0022, decision 5: a weekday can settle a numeric date. SENT is Tue Nov 10
-# 2026; Dec 1, 2026 is a Tuesday and Jan 12, 2026 a Monday.
+# 2026; Dec 1, 2026 is a Tuesday and Jan 12, 2026 a Monday. A reading more
+# than 30 days before the email is dropped (#118).
+NOV_21 = datetime(2026, 11, 21, 16, 8, tzinfo=UTC)
+DEC_20 = datetime(2026, 12, 20, 17, 0, tzinfo=UTC)
 PARSED_NUMERIC = [
     # Exactly one reading falls on the weekday
     ("Tue, 12/1/2026", SENT, utc(2026, 12, 2, 7, 59)),
-    ("Mon, 12/1/2026", SENT, utc(2026, 1, 13, 7, 59)),
     ("Tuesday 12/1/2026 5pm PT", SENT, utc(2026, 12, 2, 1, 0)),
     # A 2-digit year is 20xx
     ("Tue 12/1/26 5pm PT", SENT, utc(2026, 12, 2, 1, 0)),
     # One reading is not a date: Nov 30, 2026 is a Monday
     ("Mon 30/11 5pm PT", SENT, utc(2026, 12, 1, 1, 0)),
-    # A missing year: Jan 12, 2027 is a Tuesday, Dec 1, 2027 a Wednesday
+    # Jan 12, 2027 is a Tuesday, Dec 1, 2027 a Wednesday
     ("Tue 1/12/2027 5pm PT", SENT, utc(2027, 1, 13, 1, 0)),
     # Both readings are the same day
-    ("Tue 5/5/2026 5pm PT", SENT, utc(2026, 5, 6, 0, 0)),
+    ("Sat 12/12/2026 5pm PT", SENT, utc(2026, 12, 13, 1, 0)),
+    # Both readings are Thursdays; Mar 12 is over 30 days before the email (#118)
+    ("Thursday, 12/3/2026", NOV_21, utc(2026, 12, 4, 7, 59)),
+    # A reading less than 30 days before the email is kept
+    ("Tue 12/1/2026 5pm PT", DEC_20, utc(2026, 12, 2, 1, 0)),
 ]
 
 
@@ -583,6 +589,9 @@ NEEDS_REVIEW_NUMERIC = [
     # Neither reading falls on the weekday
     ("Wed 12/1/2026", "numeric_date"),
     ("Wed 5/5/2026", "numeric_date"),
+    # The one fitting reading is over 30 days before the email (#118)
+    ("Mon, 12/1/2026", "numeric_date"),
+    ("Tue 5/5/2026", "numeric_date"),
     # Both readings fit: with no year, Dec 1, 2026 and Jan 12, 2027 are Tuesdays
     ("Tue 12/1 5pm PT", "numeric_date"),
     # Neither reading is a date, or the year is not a year
@@ -601,3 +610,9 @@ NEEDS_REVIEW_NUMERIC = [
 @pytest.mark.parametrize(("raw", "reason"), NEEDS_REVIEW_NUMERIC)
 def test_needs_review_numeric(raw: str, reason: str) -> None:
     assert parse_due(raw, SENT) == DueParse(None, reason)
+
+
+def test_both_readings_too_early() -> None:
+    """Dec 3 and Mar 12, 2026 are both over 30 days before this email."""
+    sent = datetime(2027, 2, 1, 17, 0, tzinfo=UTC)
+    assert parse_due("Thu 12/3/2026", sent) == DueParse(None, "numeric_date")

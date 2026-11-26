@@ -25,7 +25,7 @@ This is a fixed, tested rule rather than a guess. Without it, almost every deadl
 
 "11/14" and "11/12/2026" are never parsed. USC mail is usually US-format, but mail from elsewhere is not, and the parser cannot tell which. Month names ("Nov 14", "November 14th") and ISO dates ("2026-11-14") are unambiguous and are parsed.
 
-Amended by ADR 0022 (decision 5): a numeric date next to a weekday is parsed when exactly one of its readings, month/day or day/month, is a real date on that weekday. "Tue, 12/1/2026" is December 1, because January 12, 2026 is a Monday. Without a weekday, or when both readings or neither fit it, the date still needs review. A 2-digit year is read as 20xx ("12/1/26" is 2026), as the owner decided on 2026-11-20; a 3-digit year is never accepted.
+Amended by ADR 0022 (decision 5): a numeric date next to a weekday is parsed when exactly one of its readings, month/day or day/month, is a real date on that weekday. "Tue, 12/1/2026" is December 1, because January 12, 2026 is a Monday. Without a weekday, or when both readings or neither fit it, the date still needs review. A 2-digit year is read as 20xx ("12/1/26" is 2026), as the owner decided on 2026-11-20; a 3-digit year is never accepted. A reading more than 30 days before the email is dropped before the weekday is checked, even with a written year (Issue #118, 2026-11-25).
 
 ## Other rules (no decision needed, recorded for review)
 
