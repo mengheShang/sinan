@@ -1,6 +1,6 @@
 # ADR 0023: Match new items and unparsed changes against existing items
 
-- Status: Proposed
+- Status: Accepted (2026-11-26)
 - Date: 2026-11-26
 - Decider: Menghe
 - Amends: ADR 0014 (deadline-change matching), ADR 0019 (the model picks a target)
@@ -40,10 +40,13 @@ An `update` whose due time does not parse is matched like a parsed one, determin
 - Notices are never matched (ADR 0017), and an untrusted sender's items are never matched or proposed (ADR 0010).
 - The model still only classifies; deterministic code decides every match. A proposal still needs the owner's approval before any due time changes.
 
-## Open points for the owner
+### 4. Creates use the deterministic matcher only
 
-- **No link picker for creates.** Decision 1 uses the deterministic matcher only. Asking the model for every new item would add a model call to almost every email, and most new items really are new. Changes (`update`) keep the link picker.
-- **Rejecting a proposal that came from a create.** If the match was wrong ("Quiz 6" and "Quiz 6 retake"), rejecting the proposal leaves no item for the new task. Proposed: the proposal records that it came from a `create`, and rejecting it saves the new item as it would have been saved. This touches `app/actions/` and needs line-by-line review.
+Decision 1 does not use the link picker (ADR 0019). Asking the model for every new item would add a model call to almost every email, and most new items really are new. Changes (`update`) keep the link picker. Decided by the owner on 2026-11-26.
+
+### 5. Rejecting a proposal that came from a create saves the new item
+
+A wrong match ("Quiz 6 retake" against "Quiz 6") must not lose a task. A proposal made from a `create` records that in its payload, together with the new item as it would have been saved. Rejecting it saves that item, as if no match had been found. The stored payload is covered by `payload_hash`, so the item saved is exactly the one that was proposed. Approving it works like any other proposal. This touches `app/actions/` and needs line-by-line review. Decided by the owner on 2026-11-26.
 
 ## Consequences
 
