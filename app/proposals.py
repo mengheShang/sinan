@@ -145,6 +145,7 @@ def item_update(
     before_assumed: Assumed = NOTHING,
     after_assumed: Assumed = NOTHING,
     link: Link = DETERMINISTIC,
+    new_item: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The payload of an item_update proposal: a new due time for one item.
 
@@ -152,16 +153,31 @@ def item_update(
     were assumed (ADR 0016). `link` says how the item was chosen (ADR
     0019). The hash covers what the owner sees: both times, their assumed
     parts, the evidence and the link.
+
+    `new_item` is set when the change came from an item the model called
+    new (ADR 0023, decision 1): the item as extraction would have saved it.
+    Rejecting the proposal saves it (decision 5). The hash covers it too, so
+    the item saved is exactly the one proposed. Without it the key is left
+    out, so earlier payloads keep their hash.
     """
     old = {"due_raw": before[0], "due_at": utc_text(before[1])}
     new = {"due_raw": after[0], "due_at": utc_text(after[1])}
-    return {
+    payload: dict[str, Any] = {
         "item_id": item_id,
         "before": {**old, **assumed_fields(before_assumed)},
         "after": {**new, **assumed_fields(after_assumed)},
         "evidence": evidence,
         "link": link,
     }
+    if new_item is not None:
+        payload["new_item"] = new_item
+    return payload
+
+
+def new_item_of(payload: dict[str, Any]) -> dict[str, Any] | None:
+    """The item a create-made proposal would save when rejected, or None."""
+    found = payload.get("new_item")
+    return found if isinstance(found, dict) else None
 
 
 def link_of(payload: dict[str, Any]) -> Link:

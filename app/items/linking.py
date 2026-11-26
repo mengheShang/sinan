@@ -14,7 +14,7 @@ No side effects of its own; `call` is the model call it is given.
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from app.extraction.link_prompt import LINK_PROMPT, prepare_link
+from app.extraction.link_prompt import LINK_PROMPT, REPEAT_PROMPT, prepare_link
 from app.extraction.link_reply import parse_target
 from app.extraction.validate import ValidItem
 from app.items.matching import Known
@@ -39,8 +39,16 @@ class Pick[Key]:
     code: str
 
 
-def ask[Key](call: Call, email: str, item: ValidItem, options: Sequence[Known[Key]]) -> Pick[Key]:
-    """Ask once. `email` is the fenced email text from `prepare`.
+def ask[Key](
+    call: Call,
+    email: str,
+    item: ValidItem,
+    options: Sequence[Known[Key]],
+    repeat: bool = False,
+) -> Pick[Key]:
+    """Ask once. `email` is the fenced email text from `prepare`. `repeat`
+    asks REPEAT_PROMPT, whether a new item is an existing one (ADR 0023),
+    instead of which item a change refers to.
 
     Raises ExtractorError of scope "service", like extraction, so the cycle
     stops and the email is read again later.
@@ -48,9 +56,11 @@ def ask[Key](call: Call, email: str, item: ValidItem, options: Sequence[Known[Ke
     if not options:
         return Pick(None, 0, NO_CHOICES)
     shown = len(options)
-    text = prepare_link(email, item, options)
+    tag = "item" if repeat else "change"
+    text = prepare_link(email, item, options, tag)
+    prompt = REPEAT_PROMPT if repeat else LINK_PROMPT
     try:
-        raw = call(LINK_PROMPT, text)
+        raw = call(prompt, text)
     except ExtractorError as err:
         if err.scope == "service":
             raise

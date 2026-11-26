@@ -172,6 +172,27 @@ def is_change(item: ValidItem) -> bool:
     return item.change_type == "update" and item.due_at is not None
 
 
+def is_unparsed_change(item: ValidItem) -> bool:
+    """An update whose due phrase did not parse (ADR 0023, decision 2).
+
+    It is matched to the item it changes, which is flagged for review. An
+    update with no due phrase at all stays a review item, as before.
+    """
+    if item.kind == "notice" or not item.trusted:
+        return False
+    if item.change_type != "update" or item.due_at is not None:
+        return False
+    return item.due_raw is not None
+
+
+def is_new_candidate(item: ValidItem) -> bool:
+    """An item the model called new, matched before it is saved (ADR 0023,
+    decision 1). Notices and untrusted senders are never matched."""
+    if item.kind == "notice" or not item.trusted:
+        return False
+    return item.change_type == "create"
+
+
 def build(item: ExtractedItem, sent_at: datetime, home: tzinfo, body: str) -> ValidItem:
     due = due_of(item, sent_at, home, body)
     review = review_of(item, due)

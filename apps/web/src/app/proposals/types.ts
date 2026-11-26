@@ -22,6 +22,9 @@ export type Proposal = {
   evidence: string | null;
   // How the item was chosen; part of the hashed payload (ADR 0019)
   link: Link;
+  // Made from an email read as a new item that matched this one (ADR 0023);
+  // Reject saves that item separately
+  from_new_item: boolean;
   payload_hash: string;
   created_at: string;
   expires_at: string;

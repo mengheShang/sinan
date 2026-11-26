@@ -32,6 +32,12 @@ function ProposalCard({ proposal, zone }: { proposal: Proposal; zone: string }) 
         ) : null}
         <span className={styles.flag}>New due time proposed</span>
       </div>
+      {proposal.from_new_item ? (
+        <p className={styles.muted}>
+          A new email looks like this item with another due time. Reject keeps it as a separate
+          item instead.
+        </p>
+      ) : null}
       <p className={styles.due}>
         Due {dueText(proposal.before, zone)}
         <AssumedNote due={proposal.before} /> → <strong>{dueText(proposal.after, zone)}</strong>

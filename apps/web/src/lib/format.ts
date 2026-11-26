@@ -59,6 +59,7 @@ const REVIEW_TEXT: Record<string, string> = {
   unmatched_update: "Changes an earlier item, but none matched: check which one",
   ambiguous_update: "Changes an earlier item, but several matched: check which one",
   proposal_expired: "A proposed new due time expired unanswered: check the due time",
+  update_unparsed: "A later email changed the due time, but Sinan could not read it: check the quote",
   untrusted_sender:
     "From a sender Sinan cannot verify: check that it is real before relying on it",
 };

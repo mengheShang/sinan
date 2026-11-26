@@ -114,6 +114,19 @@ def is_candidate[Key](course: str | None, title: str, known: Known[Key]) -> bool
     return similar(mine, theirs)
 
 
+def candidates[Key](course: str | None, title: str, pool: Sequence[Known[Key]]) -> list[Known[Key]]:
+    """Every candidate in `pool`, in pool order."""
+    return [k for k in pool if is_candidate(course, title, k)]
+
+
+def same_title[Key](course: str | None, title: str, known: Known[Key]) -> bool:
+    """An equal course and the same title words: "PA5" and "pa5" (ADR 0023)."""
+    if course_key(course) != course_key(known.course):
+        return False
+    mine = title_words(title, course)
+    return bool(mine) and mine == title_words(known.title, known.course)
+
+
 def match[Key](course: str | None, title: str, pool: Sequence[Known[Key]]) -> Match[Key]:
     """The one candidate in `pool` for a change, or how many there were."""
     found = [k for k in pool if is_candidate(course, title, k)]

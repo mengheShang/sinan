@@ -26,8 +26,10 @@ STALE_AFTER = timedelta(days=14)
 Phase = Literal["current", "overdue", "past", "stale"]
 # Phases that keep an item on the Dashboard
 SHOWN: tuple[Phase, ...] = ("current", "overdue")
-# Review codes that hold an item in the digest like a pending proposal
-HOLDING_REVIEWS = frozenset({"proposal_expired"})
+# Review codes that hold an item in the digest like a pending proposal. A
+# later email moved the due time but it did not parse (ADR 0023): the stored
+# one is old, so the item must not drop out unseen either.
+HOLDING_REVIEWS = frozenset({"proposal_expired", "update_unparsed"})
 
 
 def is_held(status: str, review: str | None, pending: bool) -> bool:

@@ -159,10 +159,14 @@ def test_one_candidate_makes_a_pending_proposal(session: Session) -> None:
 
 
 def test_several_candidates_need_review(session: Session) -> None:
+    # A similar title, not the same one, so it is not a repeat (ADR 0023);
+    # without a link picker it is saved as its own item
+    part_text = "Homework 3 part B is due Friday Nov 13 at 11:59pm PT."
+    part = entry(part_text, "Friday Nov 13 at 11:59pm PT", "create", "Homework 3 part")
     mail(session, POSTED, 0)
-    mail(session, POSTED + " ", 1)
+    mail(session, part_text, 1)
     mail(session, EXTENDED, 24)
-    replies = {**REPLIES, POSTED + " ": REPLIES[POSTED]}
+    replies = {part_text: part, **REPLIES}
     extract_pending(session, FakeExtractor(replies), Rules(), cap=50, clock=lambda: RUN)
     found = items(session)
     assert len(found) == 3
