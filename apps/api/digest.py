@@ -36,6 +36,15 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 Status = Literal["open", "needs_review", "done", "dismissed"]
 
 
+class SuggestionOut(BaseModel):
+    """The model's suggested due time; it only prefills the due form."""
+
+    id: uuid.UUID
+    due_at: datetime
+    time_assumed: bool
+    quote: str
+
+
 class ItemOut(BaseModel):
     id: uuid.UUID
     kind: str
@@ -62,6 +71,8 @@ class ItemOut(BaseModel):
     # Home page tags (ADR 0022); false on every other list
     overdue: bool = False
     added_today: bool = False
+    # Set only for an item without a due time (ADR 0022, decision 4)
+    suggestion: SuggestionOut | None = None
 
 
 class NoticeGroupOut(BaseModel):
@@ -128,6 +139,19 @@ def item_out(view: ItemView, live: bool) -> ItemOut:
         date_computed=view.assumed.date,
         time_carried=view.assumed.carried,
         category=view.category,
+        suggestion=suggestion_out(view),
+    )
+
+
+def suggestion_out(view: ItemView) -> SuggestionOut | None:
+    found = view.suggestion
+    if found is None or found.due_at is None or found.quote is None:
+        return None
+    if view.due_at is not None:
+        # The item already has a due time; the form shows that instead
+        return None
+    return SuggestionOut(
+        id=found.id, due_at=found.due_at, time_assumed=found.time_assumed, quote=found.quote
     )
 
 
@@ -255,6 +279,10 @@ REFUSED = {
     ),
     "not_review": (status.HTTP_409_CONFLICT, "The item does not need review"),
     "no_due": (status.HTTP_409_CONFLICT, "The item has no due time; set one instead"),
+    "bad_suggestion": (
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "That suggestion is not this item's",
+    ),
 }
 
 

@@ -22,7 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.item_status import UnknownItem
-from app.db.models import AuditEvent, Item, ItemVersion
+from app.db.models import AuditEvent, DueSuggestion, Item, ItemVersion
 from app.extraction.deadlines import END_OF_DAY, Zone, place
 from app.items.assumed import Assumed, assumed_fields
 from app.items.changes import current_version
@@ -74,6 +74,16 @@ def audit(kind: str, item: Item, old: str, data: dict[str, object]) -> AuditEven
     )
 
 
+def is_suggestion_for(session: Session, suggestion_id: uuid.UUID, item_id: uuid.UUID) -> bool:
+    """Whether the ID is a real suggestion made for this item (ADR 0022)."""
+    query = select(DueSuggestion.id).where(
+        DueSuggestion.id == suggestion_id,
+        DueSuggestion.item_id == item_id,
+        DueSuggestion.due_at.is_not(None),
+    )
+    return session.execute(query).first() is not None
+
+
 def set_due(
     session: Session,
     item_id: uuid.UUID,
@@ -88,6 +98,8 @@ def set_due(
         raise Refused("notice")
     if item.status not in ACTIVE:
         raise Refused("closed")
+    if suggestion_id is not None and not is_suggestion_for(session, suggestion_id, item.id):
+        raise Refused("bad_suggestion")
     due_at = local_due(day, at, zone)
     due_raw = due_text(day, at)
     number = current_version(session, item.id) + 1

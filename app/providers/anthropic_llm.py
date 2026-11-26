@@ -19,11 +19,14 @@ from pydantic import SecretStr
 
 from app.extraction.link_reply import LINK_SCHEMA
 from app.extraction.schema import OUTPUT_SCHEMA
+from app.extraction.suggest import SUGGEST_SCHEMA
 from app.providers.llm import ExtractorError
 
 MAX_TOKENS = 8000
 # The link reply is {"target": <number> | null}
 LINK_MAX_TOKENS = 100
+# A suggested due time is a date, a time and a short quote
+SUGGEST_MAX_TOKENS = 400
 TIMEOUT_SECONDS = 60.0
 # Extraction from one email is a simple task (M0 item 7, settled in M2)
 EFFORT = "low"
@@ -119,6 +122,22 @@ class AnthropicLinkPicker:
 
     def pick(self, prompt: str, text: str) -> str:
         body = request(self.model, prompt, text, LINK_SCHEMA, LINK_MAX_TOKENS)
+        try:
+            response = self._messages.create(**body)
+        except anthropic.APIError as exc:
+            raise error_for(exc) from None
+        return reply_text(response)
+
+
+class AnthropicSuggester:
+    """Suggested due times (ADR 0022, decision 4): one request per item."""
+
+    def __init__(self, api_key: SecretStr, model: str, messages: Messages | None = None) -> None:
+        self.model = model
+        self._messages = messages or client_messages(api_key)
+
+    def suggest(self, prompt: str, text: str) -> str:
+        body = request(self.model, prompt, text, SUGGEST_SCHEMA, SUGGEST_MAX_TOKENS)
         try:
             response = self._messages.create(**body)
         except anthropic.APIError as exc:

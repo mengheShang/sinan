@@ -15,8 +15,9 @@ from app.db.session import get_engine
 from app.extraction.prefilter import Rules
 from app.logredact import install_redaction
 from app.providers import factory
-from app.providers.llm import Extractor, LinkPicker
+from app.providers.llm import Extractor, LinkPicker, Suggester
 from apps.worker.extract_job import extract_all, load_prefilter
+from apps.worker.suggest_job import suggest_all
 from apps.worker.sweep_job import sweep_proposals
 from apps.worker.sync_job import ReaderFor, SessionFactory, build_readers, sync_all
 
@@ -34,12 +35,15 @@ def cycle(
     extractor: Extractor | None,
     rules: Rules,
     picker: LinkPicker | None = None,
+    suggester: Suggester | None = None,
 ) -> None:
-    """Sync, then extract, then sweep proposals, so each step sees the one before."""
+    """Sync, extract, suggest due times, then sweep proposals, so each step
+    sees the one before."""
     sync_all(sessions, reader_for)
     cap = settings.sinan_extract_per_cycle
     ttl = settings.sinan_proposal_ttl_days
     extract_all(sessions, extractor, rules, cap, ttl, settings.zone(), picker)
+    suggest_all(sessions, suggester, settings.sinan_suggest_per_cycle, settings.zone())
     sweep_proposals(sessions)
 
 
@@ -52,13 +56,14 @@ def main() -> None:
     reader_for = build_readers(settings)
     extractor = factory.extractor(settings)
     picker = factory.link_picker(settings)
+    suggester = factory.suggester(settings)
     rules = load_prefilter(settings)
     scheduler = BlockingScheduler(timezone="UTC")
     scheduler.add_job(heartbeat, "interval", seconds=60, id="heartbeat")
     scheduler.add_job(
         cycle,
         "interval",
-        args=[sessions, settings, reader_for, extractor, rules, picker],
+        args=[sessions, settings, reader_for, extractor, rules, picker, suggester],
         minutes=settings.sinan_sync_interval_minutes,
         id="sync",
         # Run once right away, then on the interval; never two runs at once

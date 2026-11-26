@@ -53,3 +53,21 @@ class LinkPicker(Protocol):
         change and choices. Raises ExtractorError when the call fails.
         """
         ...
+
+
+class Suggester(Protocol):
+    """Suggests a due time for an item without one (ADR 0022, decision 4).
+
+    Same contract as Extractor: text in, raw JSON text out, no tools.
+    """
+
+    # Model name recorded in due_suggestions
+    model: str
+
+    def suggest(self, prompt: str, text: str) -> str:
+        """Return the model's raw JSON reply for one item.
+
+        `prompt` is the versioned instructions, `text` the fenced email and
+        item. Raises ExtractorError when the call fails.
+        """
+        ...

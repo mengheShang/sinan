@@ -58,6 +58,7 @@ from app.db.models import (
     AuditEvent,
     Digest,
     DigestItem,
+    DueSuggestion,
     Item,
     ItemVersion,
     Message,
@@ -248,6 +249,8 @@ class ItemView:
     assumed: Assumed = NOTHING
     # The notice's group (ADR 0020); "other" for an item without one
     category: str = OTHER
+    # The model's suggested due time, when it made one (ADR 0022, decision 4)
+    suggestion: DueSuggestion | None = None
 
 
 @dataclass(frozen=True)
@@ -279,7 +282,7 @@ def newest(condition: Any) -> Any:
     return query.subquery()
 
 
-def item_query() -> Select[Any, Any, Any, Any, Any, Any, Any]:
+def item_query() -> Select[Any, Any, Any, Any, Any, Any, Any, Any]:
     """Items with their latest review code, evidence and source message.
 
     The review code comes from the newest version that sets one, and the
@@ -293,18 +296,21 @@ def item_query() -> Select[Any, Any, Any, Any, Any, Any, Any]:
     # The version that created a notice holds its category (ADR 0020)
     group = newest(ItemVersion.after.has_key("category"))
     columns = (Item, review.c.after, source.c.evidence, Message, Account.email)
+    # Only a suggestion that passed validation, never a reason row
+    made = (DueSuggestion.item_id == Item.id) & DueSuggestion.due_at.is_not(None)
     return (
-        select(*columns, due.c.after, group.c.after)
+        select(*columns, due.c.after, group.c.after, DueSuggestion)
         .outerjoin(review, review.c.item_id == Item.id)
         .outerjoin(source, source.c.item_id == Item.id)
         .outerjoin(Message, Message.id == source.c.message_id)
         .outerjoin(Account, Account.id == Message.account_id)
         .outerjoin(due, due.c.item_id == Item.id)
         .outerjoin(group, group.c.item_id == Item.id)
+        .outerjoin(DueSuggestion, made)
     )
 
 
-def to_view(row: Row[Any, Any, Any, Any, Any, Any, Any]) -> ItemView:
+def to_view(row: Row[Any, Any, Any, Any, Any, Any, Any, Any]) -> ItemView:
     item: Item = row[0]
     after: dict[str, Any] | None = row[1]
     evidence: str | None = row[2]
@@ -329,6 +335,7 @@ def to_view(row: Row[Any, Any, Any, Any, Any, Any, Any]) -> ItemView:
         provider_msg_id=msg.provider_msg_id if msg else None,
         assumed=assumed_of(row[5]),
         category=stored_category(row[6]),
+        suggestion=row[7],
     )
 
 
