@@ -66,6 +66,7 @@ There is no 7-day window, no separate needs-review section and no "new since" se
 - ADR 0005 marks every numeric date for review, because 11/12 has two readings. From now on, a numeric date next to a weekday is accepted when exactly one of its two readings (month/day, day/month) is a real date that falls on that weekday.
   - "Tue, 12/1/2026" is accepted as December 1, because January 12, 2026 is a Monday.
   - A date with no weekday, or one where both readings or neither fit the weekday, still needs review.
+  - Amended 2026-11-25 (Issue #118): a reading more than 30 days before the email is dropped first, even when the year is written, as ADR 0005 already does for a missing year. "Thursday, 12/3/2026" in a November 2026 email is December 3, though March 12, 2026 is a Thursday too.
 - The `numeric_date` label names this email's two readings ("12/1 could be Dec 1 or Jan 12") instead of a fixed example.
 
 ## Consequences

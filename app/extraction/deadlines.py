@@ -30,9 +30,12 @@ extended by ADR 0011 and ADR 0016):
 - A numeric date such as 12/1 has two readings, month/day and day/month. It
   is accepted only next to a weekday, when exactly one reading is a real
   date on that weekday (ADR 0022, decision 5): "Tue 12/1/2026" is Dec 1,
-  since Jan 12, 2026 is a Monday. With no weekday, or with both readings or
-  neither fitting, it needs review. A 2-digit year is 20xx; a missing year
-  follows the rule below, for each reading.
+  since Jan 12, 2026 is a Monday. A reading more than 30 days before the
+  email is dropped first, even with a written year: "Thu 12/3/2026" sent in
+  November 2026 is Dec 3, though Mar 12, 2026 is a Thursday too. With no
+  weekday, or with both readings or neither fitting, it needs review. A
+  2-digit year is 20xx; a missing year follows the rule below, for each
+  reading.
 - A missing year is inferred from the email date: the one year that puts the
   date between 30 days before and 335 days after the email.
 - A weekday alone means the first such day on or after the email date, in the
@@ -492,7 +495,10 @@ def numeric_day(text: str, cased: str, sent: date, named: set[int]) -> DateParts
         if parts.year == 0:
             continue
         day = resolve_year(parts, sent)
-        if isinstance(day, date) and day.weekday() == weekday:
+        if not isinstance(day, date) or day < sent - PAST_WINDOW:
+            # A reading long before the email is not the deadline (#118)
+            continue
+        if day.weekday() == weekday:
             fits.add(day)
     if len(fits) != 1:
         return "numeric_date"
