@@ -1,7 +1,8 @@
-"""Digest and item endpoints for the Dashboard.
+"""Home page and item endpoints for the Dashboard.
 
-All sit behind the login like every other route. The Worker makes digests;
-the only writes here are the owner changing an item's status or due time
+All sit behind the login like every other route. The home page is computed
+when it is read (ADR 0022); the Worker no longer makes digests. The only
+writes here are the owner changing an item's status or due time
 (ADR 0022), confirming an item that needs review, making a
 notice a to-do or dismissing the notices shown (ADR 0017), which touch the
 local database alone.
@@ -9,6 +10,7 @@ Proposed changes are in apps/api/proposals.py.
 """
 
 import uuid
+from collections.abc import Callable
 from datetime import date, datetime
 from datetime import time as dt_time
 from typing import Annotated, Literal
@@ -18,7 +20,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
 
 from app.config import Settings, get_settings
-from app.db.digest import ItemView, latest, list_items, past_items, read_digest
+from app.db.digest import ItemView, list_items, past_items
+from app.db.home import Entry, read_home
 from app.db.item_due import Refused, confirm, set_due
 from app.db.item_kind import NotANotice, make_todo
 from app.db.item_status import BadMove, UnknownItem, set_status
@@ -56,6 +59,9 @@ class ItemOut(BaseModel):
     time_carried: bool
     # The notice's group (ADR 0020); "other" for an item without one
     category: str
+    # Home page tags (ADR 0022); false on every other list
+    overdue: bool = False
+    added_today: bool = False
 
 
 class NoticeGroupOut(BaseModel):
@@ -64,33 +70,33 @@ class NoticeGroupOut(BaseModel):
     notices: list[ItemOut]
 
 
-def notice_groups(views: list[ItemView], live: bool) -> list[NoticeGroupOut]:
+def grouped[T](
+    members: list[T], category: Callable[[T], str], out: Callable[[T], ItemOut]
+) -> list[NoticeGroupOut]:
     """One group per category that has notices, in the fixed category order."""
-    found = group(views, lambda v: v.category)
-    return [
-        NoticeGroupOut(category=name, notices=[item_out(v, live) for v in members])
-        for name, members in found
-    ]
+    found = group(members, category)
+    return [NoticeGroupOut(category=name, notices=[out(m) for m in items]) for name, items in found]
 
 
-class DigestOut(BaseModel):
-    digest_date: date
-    generated_at: datetime
-    since: datetime | None
-    # IANA zone for showing times; all times above are UTC
+def notice_groups(views: list[ItemView], live: bool) -> list[NoticeGroupOut]:
+    return grouped(views, lambda v: v.category, lambda v: item_out(v, live))
+
+
+class HomeOut(BaseModel):
+    # IANA zone for showing times; all times are UTC
     timezone: str
-    # Computed at read time from all active items, never stored (ADR 0015)
-    overdue: list[ItemOut]
-    new: list[ItemOut]
-    due_soon: list[ItemOut]
-    needs_review: list[ItemOut]
-    # Proposed changes that expired unanswered since the previous digest
-    expired_proposals: int
-    # Found as notices since the previous digest, in their current state,
-    # grouped by category; computed at read time, never stored (ADR 0017, 0020)
+    # Items with a due time, and items that need review (ADR 0022, decision 1)
+    due: list[ItemOut]
+    # Open items without a due time, newest first
+    todo: list[ItemOut]
+    # Every open notice, newest first, grouped by category (ADR 0017, 0020)
     notice_groups: list[NoticeGroupOut]
-    # Open notices found after this digest was made; they wait for the next one
-    later_notices: int
+    # Proposed changes that expired unanswered in the last 7 days
+    expired_proposals: int
+
+
+class ZoneOut(BaseModel):
+    timezone: str
 
 
 def gmail_url(view: ItemView, live: bool) -> str | None:
@@ -125,31 +131,31 @@ def item_out(view: ItemView, live: bool) -> ItemOut:
     )
 
 
-@router.get("/digest")
-def digest(session: SessionDep, settings: SettingsDep, clock: ClockDep) -> DigestOut | None:
-    """The latest digest as it stands now, or null before the Worker has made one.
+def entry_out(entry: Entry, live: bool) -> ItemOut:
+    out = item_out(entry.view, live)
+    return out.model_copy(update={"overdue": entry.overdue, "added_today": entry.added_today})
 
-    Stored items that are now overdue, past or stale leave their sections.
-    """
-    found = latest(session)
-    if found is None:
-        return None
-    view = read_digest(session, found, clock())
+
+@router.get("/home")
+def home(session: SessionDep, settings: SettingsDep, clock: ClockDep) -> HomeOut:
+    """The home page as it stands now (ADR 0022). Reading writes nothing."""
+    view = read_home(session, clock(), settings.zone())
     live = settings.sinan_mode == "live"
-    sections = {name: [item_out(v, live) for v in items] for name, items in view.sections.items()}
-    return DigestOut(
-        digest_date=view.digest_date,
-        generated_at=view.generated_at,
-        since=view.since,
+    return HomeOut(
         timezone=settings.sinan_timezone,
-        overdue=[item_out(v, live) for v in view.overdue],
-        new=sections["new"],
-        due_soon=sections["due_soon"],
-        needs_review=sections["needs_review"],
+        due=[entry_out(e, live) for e in view.due],
+        todo=[entry_out(e, live) for e in view.todo],
+        notice_groups=grouped(
+            view.notices, lambda e: e.view.category, lambda e: entry_out(e, live)
+        ),
         expired_proposals=view.expired_proposals,
-        notice_groups=notice_groups(view.notices, live),
-        later_notices=view.later_notices,
     )
+
+
+@router.get("/timezone")
+def timezone(settings: SettingsDep) -> ZoneOut:
+    """The zone the Dashboard shows times in (SINAN_TIMEZONE)."""
+    return ZoneOut(timezone=settings.sinan_timezone)
 
 
 @router.get("/items")

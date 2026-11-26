@@ -19,7 +19,6 @@ from sqlalchemy.orm import Session
 from app.actions.proposals import approve
 from app.auth import Auth, LoginLimiter, SessionSigner, hash_password
 from app.config import Settings, get_settings
-from app.db.digest import make_digest
 from app.db.extract import extract_pending
 from app.db.models import Account, Item, ItemVersion, Message, Proposal
 from app.extraction.prefilter import Rules
@@ -172,10 +171,9 @@ def test_api_shows_the_assumed_parts(client: TestClient, session: Session) -> No
     (shown,) = client.get("/items").json()
     assert shown["zone_assumed"] is True
     assert shown["time_assumed"] is True
-    make_digest(session, RUN, ZoneInfo("America/Los_Angeles"), 7, force=True)
-    (new,) = client.get("/digest").json()["new"]
-    assert new["zone_assumed"] is True
-    assert new["time_assumed"] is True
+    (due,) = client.get("/home").json()["due"]
+    assert due["zone_assumed"] is True
+    assert due["time_assumed"] is True
 
 
 def test_items_without_flags_read_as_written(client: TestClient, session: Session) -> None:
@@ -254,9 +252,9 @@ def test_overdue_and_past_show_the_flags(client: TestClient, session: Session) -
     # Due Friday Nov 13, 23:59 in Los Angeles: 07:59 UTC Nov 14
     mail(session, DATE_ONLY, 0)
     extract(session)
-    make_digest(session, RUN, ZoneInfo("America/Los_Angeles"), 7, force=True)
     CLOCK[0] = datetime(2026, 11, 14, 12, 0, tzinfo=UTC)
-    (overdue,) = client.get("/digest").json()["overdue"]
+    (overdue,) = client.get("/home").json()["due"]
+    assert overdue["overdue"] is True
     assert overdue["zone_assumed"] is True
     assert overdue["time_assumed"] is True
     CLOCK[0] = datetime(2026, 11, 20, 12, 0, tzinfo=UTC)

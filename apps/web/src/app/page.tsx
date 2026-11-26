@@ -64,9 +64,10 @@ export default function Home() {
         <SignedIn />
       </Suspense>
       <p className={styles.note}>
-        Your daily digest. Sinan only reads mail; it is shown here and never sent anywhere.
+        What is due, what to do, and notices, as of now. Sinan only reads mail; it is shown here
+        and never sent anywhere.
       </p>
-      <Suspense fallback={<p>Loading the digest…</p>}>
+      <Suspense fallback={<p>Loading…</p>}>
         <Dashboard />
       </Suspense>
       <details className={styles.health}>

@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.actions.proposals import HashMismatch, NotPending, approve, reject, sweep
 from app.auth import Auth, LoginLimiter, SessionSigner, hash_password
 from app.config import Settings, get_settings
-from app.db.digest import latest, list_items, make_digest, past_items, read_digest
+from app.db.digest import list_items, make_digest, past_items, read_digest
 from app.db.extract import extract_pending
 from app.db.item_status import set_status
 from app.db.models import Account, AuditEvent, Item, ItemVersion, Message, Proposal
@@ -618,11 +618,14 @@ def test_api_approving_unswept_expired_is_409_and_recorded(
     assert (item.status, item.due_at) == ("needs_review", FRIDAY)
 
 
-def test_api_digest_shows_expired_count(client: TestClient, session: Session) -> None:
+def test_api_home_shows_expired_count(client: TestClient, session: Session) -> None:
     posted_and_extended(session, MOVED_LATE)
     when = RUN + timedelta(days=7, hours=8)
     sweep(session, when, "worker")
     session.commit()
-    make_digest(session, when, LA, 7)
-    assert latest(session) is not None
-    assert client.get("/digest").json()["expired_proposals"] == 1
+    app.dependency_overrides[get_clock] = lambda: lambda: when
+    assert client.get("/home").json()["expired_proposals"] == 1
+    # It leaves the count a week after it expired
+    later = when + timedelta(days=8)
+    app.dependency_overrides[get_clock] = lambda: lambda: later
+    assert client.get("/home").json()["expired_proposals"] == 0

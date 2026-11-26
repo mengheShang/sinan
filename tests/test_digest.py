@@ -31,7 +31,7 @@ from apps.api.auth import COOKIE, get_auth
 from apps.api.clock import get_clock
 from apps.api.main import app
 from apps.api.oauth import get_session
-from apps.worker.digest_job import digest_today
+from apps.worker.sweep_job import sweep_proposals
 
 pytestmark = pytest.mark.db
 
@@ -323,22 +323,6 @@ def test_reading_later_moves_items_without_changing_the_digest(session: Session)
     assert stored(session) == before
 
 
-def test_api_digest_counts_match_its_sections(client: TestClient, session: Session) -> None:
-    seed_item(session, "Due tomorrow", MORNING - DAY, due_at=MORNING + DAY)
-    seed_item(session, "Due yesterday", MORNING - 5 * DAY, due_at=MORNING - DAY)
-    seed_item(session, "Due 3 days ago", MORNING - 5 * DAY, due_at=MORNING - 3 * DAY)
-    seed_item(session, "Old review", MORNING - 15 * DAY, status="needs_review")
-    make_digest(session, MORNING, LA, 7)
-    body = client.get("/digest").json()
-    assert [i["title"] for i in body["overdue"]] == ["Due yesterday"]
-    assert [i["title"] for i in body["new"]] == ["Due tomorrow"]
-    assert [i["title"] for i in body["due_soon"]] == ["Due tomorrow"]
-    assert body["needs_review"] == []
-    event = session.execute(sa.select(AuditEvent)).scalar_one()
-    for name in ("new", "due_soon", "needs_review"):
-        assert event.data[name] == len(body[name])
-
-
 def test_api_past_view(client: TestClient, session: Session) -> None:
     seed_item(session, "Due 3 days ago", MORNING - 5 * DAY, due_at=MORNING - 3 * DAY)
     seed_item(session, "Due 9 days ago", MORNING - 10 * DAY, due_at=MORNING - 9 * DAY)
@@ -422,23 +406,25 @@ def demo_client(session: Session) -> Iterator[TestClient]:
 
 def test_api_needs_login(client: TestClient) -> None:
     client.cookies.clear()
-    assert client.get("/digest").status_code == 401
+    assert client.get("/home").status_code == 401
+    assert client.get("/timezone").status_code == 401
     assert client.get("/items").status_code == 401
 
 
-def test_api_digest_is_null_before_the_first_one(client: TestClient) -> None:
-    resp = client.get("/digest")
-    assert resp.status_code == 200
-    assert resp.json() is None
+def test_the_digest_route_is_gone(client: TestClient) -> None:
+    """The Dashboard reads /home now (ADR 0022)."""
+    assert client.get("/digest").status_code == 404
 
 
-def test_api_digest_has_evidence_and_gmail_link(client: TestClient, session: Session) -> None:
+def test_api_timezone(client: TestClient) -> None:
+    assert client.get("/timezone").json() == {"timezone": "America/Los_Angeles"}
+
+
+def test_api_home_has_evidence_and_gmail_link(client: TestClient, session: Session) -> None:
     seed_item(session, "Homework 3", MORNING, due_at=MORNING + timedelta(days=2))
-    make_digest(session, MORNING, LA, 7)
-    body = client.get("/digest").json()
-    assert body["digest_date"] == "2026-11-11"
+    body = client.get("/home").json()
     assert body["timezone"] == "America/Los_Angeles"
-    (soon,) = body["due_soon"]
+    (soon,) = body["due"]
     assert soon["title"] == "Homework 3"
     assert soon["evidence"] == "Homework 3 is due soon."
     assert soon["subject"] == "CS 000: Homework 3"
@@ -449,8 +435,7 @@ def test_api_digest_has_evidence_and_gmail_link(client: TestClient, session: Ses
 
 def test_api_demo_mode_has_no_gmail_link(demo_client: TestClient, session: Session) -> None:
     seed_item(session, "Homework 3", MORNING, due_at=MORNING + timedelta(days=2))
-    make_digest(session, MORNING, LA, 7)
-    (soon,) = demo_client.get("/digest").json()["due_soon"]
+    (soon,) = demo_client.get("/home").json()["due"]
     assert soon["gmail_url"] is None
 
 
@@ -467,19 +452,22 @@ def test_api_items_filter_by_status(client: TestClient, session: Session) -> Non
     assert client.get("/items", params={"status": "bogus"}).status_code == 422
 
 
-# ---- Worker job ----
+# ---- Worker ----
 
 
-def test_demo_waits_for_items_before_its_digest(session: Session) -> None:
-    settings = Settings(sinan_mode="demo")
-    assert digest_today(lambda: session, settings, clock=lambda: EARLY) is False
+def test_worker_sweeps_and_makes_no_digest(session: Session) -> None:
+    """The cycle's last step records expired proposals; no digest is made (ADR 0022)."""
+    item_id = seed_item(session, "Soon", MORNING - DAY, due_at=MORNING + 3 * DAY)
+    seed_proposal(session, item_id, MORNING - timedelta(hours=1))
+    counts = sweep_proposals(lambda: session, clock=lambda: MORNING)
+    assert counts["expired"] == 1
     assert latest(session) is None
-    seed_item(session, "Soon", EARLY, due_at=EARLY + timedelta(days=1))
-    assert digest_today(lambda: session, settings, clock=lambda: EARLY) is True
+    status = session.execute(sa.select(Proposal.status)).scalar_one()
+    assert status == "expired"
 
 
-def test_live_waits_for_the_hour_even_with_items(session: Session) -> None:
-    seed_item(session, "Soon", EARLY, due_at=EARLY + timedelta(days=1))
-    live = Settings(sinan_mode="demo").model_copy(update={"sinan_mode": "live"})
-    assert digest_today(lambda: session, live, clock=lambda: EARLY) is False
-    assert digest_today(lambda: session, live, clock=lambda: MORNING) is True
+def test_sweep_failure_is_logged_not_raised(session: Session) -> None:
+    def broken() -> Session:
+        raise RuntimeError("no database")
+
+    assert sweep_proposals(broken, clock=lambda: MORNING) == {}

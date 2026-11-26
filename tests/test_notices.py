@@ -437,17 +437,16 @@ def client(session: Session) -> Iterator[TestClient]:
     app.dependency_overrides.clear()
 
 
-def test_api_digest_lists_notices_with_date_and_link(client: TestClient, session: Session) -> None:
+def test_api_home_lists_notices_with_date_and_link(client: TestClient, session: Session) -> None:
     seed(session, "Resume workshop", MORNING - DAY, due_at=WORKSHOP_DUE)
-    digest_at(session, MORNING)
-    body = client.get("/digest").json()
+    body = client.get("/home").json()
     (group,) = body["notice_groups"]
     assert group["category"] == "other"
     (notice,) = group["notices"]
     assert notice["kind"] == "notice"
     assert notice["due_at"] == "2026-11-21T01:00:00Z"
     assert notice["gmail_url"].startswith("https://mail.google.com/mail/?authuser=")
-    assert body["new"] == [] and body["due_soon"] == []
+    assert body["due"] == [] and body["todo"] == []
     assert client.get("/items").json() == []
     past = client.get("/items/past").json()
     (group,) = past["notice_groups"]
@@ -474,11 +473,12 @@ def test_api_make_todo_needs_login(client: TestClient, session: Session) -> None
 
 def test_api_dismiss_one_notice(client: TestClient, session: Session) -> None:
     item_id = seed(session, "Flu shots", MORNING - DAY)
-    digest_at(session, MORNING)
+    ((notice,),) = [g["notices"] for g in client.get("/home").json()["notice_groups"]]
+    assert notice["status"] == "open"
     resp = client.post(f"/items/{item_id}/status", json={"status": "dismissed"})
     assert resp.status_code == 200
-    ((notice,),) = [g["notices"] for g in client.get("/digest").json()["notice_groups"]]
-    assert notice["status"] == "dismissed"
+    # The home page lists open notices only
+    assert client.get("/home").json()["notice_groups"] == []
     assert client.get("/items/past").json()["notice_groups"] == []
 
 
@@ -496,13 +496,6 @@ def test_api_dismiss_all(client: TestClient, session: Session) -> None:
     assert client.post("/notices/dismiss", json={"ids": ["not-an-id"]}).status_code == 422
     too_many = [str(uuid.uuid4()) for _ in range(501)]
     assert client.post("/notices/dismiss", json={"ids": too_many}).status_code == 422
-
-
-def test_api_digest_counts_later_notices(client: TestClient, session: Session) -> None:
-    digest_at(session, MORNING)
-    assert client.get("/digest").json()["later_notices"] == 0
-    seed(session, "Storm alert", MORNING + timedelta(minutes=30))
-    assert client.get("/digest").json()["later_notices"] == 1
 
 
 def test_api_dismiss_all_needs_login(client: TestClient, session: Session) -> None:
@@ -529,7 +522,7 @@ def test_extraction_stores_a_notices_category_only(session: Session) -> None:
     assert view.category == "career"
 
 
-def groups_of(client: TestClient, path: str = "/digest") -> dict[str, list[dict[str, Any]]]:
+def groups_of(client: TestClient, path: str = "/home") -> dict[str, list[dict[str, Any]]]:
     found = client.get(path).json()["notice_groups"]
     return {g["category"]: g["notices"] for g in found}
 
@@ -549,11 +542,11 @@ def seed_groups(session: Session) -> dict[str, uuid.UUID]:
 
 def test_api_groups_notices_one_row_per_category(client: TestClient, session: Session) -> None:
     seed_groups(session)
-    digest_at(session, MORNING)
-    found = client.get("/digest").json()["notice_groups"]
+    found = client.get("/home").json()["notice_groups"]
     assert [g["category"] for g in found] == ["course", "safety", "event", "other"]
     groups = groups_of(client)
-    assert [n["title"] for n in groups["safety"]] == ["Storm warning", "Crime alert near campus"]
+    # Most recently received first, like the Past view (ADR 0022)
+    assert [n["title"] for n in groups["safety"]] == ["Crime alert near campus", "Storm warning"]
     assert {n["title"] for n in groups["other"]} == {"Saved before categories", "Odd value"}
     assert all(n["category"] == "other" for n in groups["other"])
     past = groups_of(client, "/items/past")
@@ -586,8 +579,8 @@ def test_make_todo_works_inside_a_group(client: TestClient, session: Session) ->
     resp = client.post(f"/items/{ids['concert']}/kind", json={"kind": "todo"})
     assert resp.status_code == 200
     assert "event" not in groups_of(client)
-    new = client.get("/digest").json()["new"]
-    assert [(i["title"], i["kind"]) for i in new] == [("Fall concert", "todo")]
+    todo = client.get("/home").json()["todo"]
+    assert [(i["title"], i["kind"]) for i in todo] == [("Fall concert", "todo")]
     todos = [i["title"] for i in client.get("/items").json()]
     assert todos == ["Fall concert"]
     assert "event" not in groups_of(client, "/items/past")
