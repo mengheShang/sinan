@@ -10,7 +10,7 @@ import { AssumedNote } from "./assumed";
 import { apiFetch } from "@/lib/session";
 import styles from "./digest.module.css";
 import { dismissNotices, makeTodo, setStatus } from "./items/actions";
-import { ConfirmButton, DueForm } from "./items/due-form";
+import { ConfirmButton, DueForm, type Suggestion } from "./items/due-form";
 import { ProposalList } from "./proposals/list";
 import type { Proposal } from "./proposals/types";
 
@@ -38,6 +38,8 @@ export type Item = {
   // Home page tags (ADR 0022); false on every other page
   overdue?: boolean;
   added_today?: boolean;
+  // The model's suggested due time, for an item without one (ADR 0022)
+  suggestion?: Suggestion | null;
 };
 
 // One category's notices, in the fixed category order (ADR 0020)
@@ -134,12 +136,21 @@ function DueControls({ item, zone }: { item: Item; zone: string }) {
     return null;
   }
   const review = item.status === "needs_review";
-  const parts = localParts(item.due_at, zone);
+  // Without a due time, the model's suggestion prefills the form
+  const suggestion = item.due_at ? null : (item.suggestion ?? null);
+  const parts = localParts(item.due_at ?? suggestion?.due_at ?? null, zone);
   const key = item.due_at ?? "none";
   if (review && !item.due_at) {
     return (
       <div className={styles.actions}>
-        <DueForm key={key} id={item.id} label="Confirm" {...parts} zone={zone} />
+        <DueForm
+          key={key}
+          id={item.id}
+          label="Confirm"
+          {...parts}
+          zone={zone}
+          suggestion={suggestion}
+        />
       </div>
     );
   }
@@ -147,7 +158,14 @@ function DueControls({ item, zone }: { item: Item; zone: string }) {
   return (
     <div className={styles.actions}>
       {review ? <ConfirmButton id={item.id} /> : null}
-      <DueForm key={key} id={item.id} label={label} {...parts} zone={zone} />
+      <DueForm
+        key={key}
+        id={item.id}
+        label={label}
+        {...parts}
+        zone={zone}
+        suggestion={suggestion}
+      />
     </div>
   );
 }

@@ -137,14 +137,13 @@ def test_change_clears_review(session: Session) -> None:
 
 
 @db
-def test_suggestion_id_is_recorded(session: Session) -> None:
+def test_a_made_up_suggestion_id_is_refused(session: Session) -> None:
+    """Only a real suggestion for this item can be recorded (ADR 0022);
+    tests/test_suggest.py covers a real one."""
     item_id = seed_item(session, "Lab 14", MORNING)
-    suggestion = uuid.uuid4()
-    set_due(session, item_id, DEC_1, None, LA, suggestion)
-    session.commit()
-    assert versions(session, item_id)[-1].after["suggestion_id"] == str(suggestion)
-    event = events(session, "item.due")[0]
-    assert event.data["suggestion_id"] == str(suggestion)
+    with pytest.raises(Refused) as caught:
+        set_due(session, item_id, DEC_1, None, LA, uuid.uuid4())
+    assert caught.value.code == "bad_suggestion"
 
 
 @db

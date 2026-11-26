@@ -29,3 +29,10 @@ test("anything else is refused before it reaches the API", () => {
   assert.equal(dueBody("Dec 1", ""), null);
   assert.equal(dueBody("2026-12-01", "5pm"), null);
 });
+
+test("a suggestion ID is sent only when it looks like one", () => {
+  const id = "0b9c2f4e-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
+  assert.deepEqual(dueBody("2026-12-01", "", id), { date: "2026-12-01", suggestion_id: id });
+  assert.deepEqual(dueBody("2026-12-01", "17:00", ""), { date: "2026-12-01", time: "17:00" });
+  assert.equal(dueBody("2026-12-01", "", "not-an-id"), null);
+});
