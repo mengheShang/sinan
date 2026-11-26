@@ -1,4 +1,4 @@
-// Proposed changes waiting for the owner, shown above the digest.
+// Proposed changes waiting for the owner, shown above the home page lists.
 // Server component: the list comes from the API, which expires and supersedes
 // stale proposals before answering.
 import { localTime } from "@/lib/format";

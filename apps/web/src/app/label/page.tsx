@@ -6,7 +6,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { localTime } from "@/lib/format";
-import { load } from "../digest";
+import { load, loadZone } from "../digest";
 import styles from "./label.module.css";
 import { skipEmail } from "./actions";
 import { LabelForm } from "./label-form";
@@ -14,7 +14,6 @@ import type { Counts, Email, Queue } from "./types";
 
 export const metadata: Metadata = { title: "Label · Sinan" };
 
-type Zone = { timezone: string } | null;
 
 function CountBar({ counts }: { counts: Counts }) {
   return (
@@ -110,9 +109,9 @@ async function Labeler({ searchParams }: Pick<PageProps<"/label">, "searchParams
     }
     redirect(`/label?id=${start}`);
   }
-  const [email, digest] = await Promise.all([
+  const [email, zone] = await Promise.all([
     load<Email>(`/labeling/emails/${encodeURIComponent(id)}`),
-    load<Zone>("/digest"),
+    loadZone(),
   ]);
   if (email === "error") {
     return (
@@ -121,8 +120,6 @@ async function Labeler({ searchParams }: Pick<PageProps<"/label">, "searchParams
       </p>
     );
   }
-  // Times use the digest zone, or UTC before the first digest
-  const zone = digest && digest !== "error" ? digest.timezone : "UTC";
   return (
     <>
       <CountBar counts={email.counts} />

@@ -86,7 +86,7 @@ class Settings(Common):
     sinan_boost_senders: str = "config/deadline_boost.toml"
     # Digest days and displayed times use this zone; storage stays UTC (ADR 0008)
     sinan_timezone: str = "America/Los_Angeles"
-    # Local hour after which the Worker makes the day's digest
+    # Unused since the daily digest stopped (ADR 0022); removed with its tables
     sinan_digest_hour: int = Field(default=7, ge=0, le=23)
     # Days a pending proposal waits before it expires, unless its due time
     # comes sooner (ADR 0009, decision 6)

@@ -1,4 +1,5 @@
-"""Worker entry point: scheduled mail sync, prefilter and extraction, then the digest.
+"""Worker entry point: scheduled mail sync, prefilter and extraction, then the
+proposal sweep. It no longer makes digests (ADR 0022).
 
 The Worker only ever holds the read-only token.
 """
@@ -15,8 +16,8 @@ from app.extraction.prefilter import Rules
 from app.logredact import install_redaction
 from app.providers import factory
 from app.providers.llm import Extractor, LinkPicker
-from apps.worker.digest_job import digest_today
 from apps.worker.extract_job import extract_all, load_prefilter
+from apps.worker.sweep_job import sweep_proposals
 from apps.worker.sync_job import ReaderFor, SessionFactory, build_readers, sync_all
 
 log = logging.getLogger("sinan.worker")
@@ -34,12 +35,12 @@ def cycle(
     rules: Rules,
     picker: LinkPicker | None = None,
 ) -> None:
-    """Sync, then extract, then the digest, so each step sees the one before."""
+    """Sync, then extract, then sweep proposals, so each step sees the one before."""
     sync_all(sessions, reader_for)
     cap = settings.sinan_extract_per_cycle
     ttl = settings.sinan_proposal_ttl_days
     extract_all(sessions, extractor, rules, cap, ttl, settings.zone(), picker)
-    digest_today(sessions, settings)
+    sweep_proposals(sessions)
 
 
 def main() -> None:

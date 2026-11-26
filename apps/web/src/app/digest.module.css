@@ -270,3 +270,33 @@
   margin-top: 6px;
   font-size: 13px;
 }
+
+/* Home page tags (ADR 0022) */
+.overdue {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #fee2e2;
+  color: #7f1d1d;
+}
+
+.added {
+  font-size: 13px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #dbeafe;
+  color: #1e3a8a;
+}
+
+@media (prefers-color-scheme: dark) {
+  .overdue {
+    background: #7f1d1d;
+    color: #fee2e2;
+  }
+
+  .added {
+    background: #1e3a8a;
+    color: #dbeafe;
+  }
+}

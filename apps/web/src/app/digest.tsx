@@ -1,10 +1,11 @@
-// The daily digest and the account panel, shown on the home page.
+// The live home page (ADR 0022) and the account panel, plus the item cards
+// and notice groups the other pages share.
 // Server components only: the API is called with the session cookie, and a
 // 401 sends the browser to the login page.
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { localParts } from "@/lib/due";
-import { localDate, localTime, reviewText } from "@/lib/format";
+import { localTime, reviewText } from "@/lib/format";
 import { AssumedNote } from "./assumed";
 import { apiFetch } from "@/lib/session";
 import styles from "./digest.module.css";
@@ -34,6 +35,9 @@ export type Item = {
   time_carried: boolean;
   // The notice's group (ADR 0020); "other" for an item without one
   category: string;
+  // Home page tags (ADR 0022); false on every other page
+  overdue?: boolean;
+  added_today?: boolean;
 };
 
 // One category's notices, in the fixed category order (ADR 0020)
@@ -42,22 +46,16 @@ export type NoticeGroup = {
   notices: Item[];
 };
 
-type Digest = {
-  digest_date: string;
-  generated_at: string;
-  since: string | null;
+type Home = {
   timezone: string;
-  // Due time passed less than two days ago; computed when the digest is read
-  overdue: Item[];
-  new: Item[];
-  due_soon: Item[];
-  needs_review: Item[];
-  expired_proposals: number;
-  // Found as notices since the previous digest, in their current state,
-  // grouped by category (ADR 0017, 0020)
+  // Items with a due time, overdue first, then those needing review last
+  due: Item[];
+  // Open items without a due time, newest first
+  todo: Item[];
+  // Every open notice, newest first, grouped by category (ADR 0017, 0020)
   notice_groups: NoticeGroup[];
-  // Open notices found after this digest was made; next morning's notices so far
-  later_notices: number;
+  // Proposed changes that expired unanswered in the last 7 days
+  expired_proposals: number;
 };
 
 type Account = {
@@ -76,6 +74,12 @@ const STATUS_TEXT: Record<Account["status"], string> = {
   expired: "Expired",
   needs_reauth: "Needs reconnect",
 };
+
+// The zone times are shown in (SINAN_TIMEZONE); UTC if the API cannot say
+export async function loadZone(): Promise<string> {
+  const found = await load<{ timezone: string }>("/timezone");
+  return found === "error" ? "UTC" : found.timezone;
+}
 
 export async function load<T>(path: string): Promise<T | "error"> {
   const resp = await apiFetch(path);
@@ -155,6 +159,8 @@ export function ItemCard({ item, zone }: { item: Item; zone: string }) {
       <div className={styles.row}>
         {item.course ? <span className={styles.course}>{item.course}</span> : null}
         <strong>{item.title}</strong>
+        {item.overdue ? <span className={styles.overdue}>Overdue</span> : null}
+        {item.added_today ? <span className={styles.added}>Added today</span> : null}
         {review ? <span className={styles.flag}>{reviewText(item.review, item.due_raw)}</span> : null}
       </div>
       <p className={styles.due}>
@@ -194,6 +200,7 @@ function NoticeLine({ item, zone }: { item: Item; zone: string }) {
     <li className={styles.notice}>
       {item.course ? <span className={styles.course}>{item.course}</span> : null}
       <strong>{item.title}</strong>
+      {item.added_today ? <span className={styles.added}>Added today</span> : null}
       {item.due_at ? (
         <span>
           {localTime(item.due_at, zone)}
@@ -282,14 +289,11 @@ export function NoticeSection({
   empty,
   groups,
   zone,
-  later = 0,
 }: {
   title: string;
   empty: string;
   groups: NoticeGroup[];
   zone: string;
-  // Open notices since this morning's digest; they wait for the next one
-  later?: number;
 }) {
   const shown = groups.flatMap((g) => g.notices);
   const total = shown.length;
@@ -311,13 +315,6 @@ export function NoticeSection({
           <DismissAll items={shown} />
         </>
       )}
-      {later > 0 ? (
-        <p className={styles.meta}>
-          <Link href="/past">
-            {later} new {later === 1 ? "notice" : "notices"} since this morning →
-          </Link>
-        </p>
-      ) : null}
     </section>
   );
 }
@@ -351,69 +348,26 @@ export function Section({
   );
 }
 
-function DigestView({ digest }: { digest: Digest | null | "error" }) {
-  if (digest === "error") {
-    return <p className={styles.bad}>Could not load the digest.</p>;
+function HomeView({ home }: { home: Home | "error" }) {
+  if (home === "error") {
+    return <p className={styles.bad}>Could not load the home page.</p>;
   }
-  if (digest === null) {
-    return (
-      <p className={styles.empty}>
-        No digest yet. The Worker makes one each morning after mail has synced.
-      </p>
-    );
-  }
-  const zone = digest.timezone;
-  // Items closed since the digest was made drop out at once, not next morning
-  const all = [...digest.due_soon, ...digest.needs_review, ...digest.new];
-  const closed = new Set(all.filter(isClosed).map((i) => i.id));
-  const active = (items: Item[]) => items.filter((i) => !closed.has(i.id));
+  const zone = home.timezone;
+  const expired = home.expired_proposals;
   return (
     <>
       <p className={styles.meta}>
-        {localDate(digest.digest_date)} · made {localTime(digest.generated_at, zone)}
-        {digest.expired_proposals > 0 ? (
+        {expired > 0 ? (
           <>
-            {" "}
-            · {digest.expired_proposals} proposed{" "}
-            {digest.expired_proposals === 1 ? "change" : "changes"} expired unanswered
+            {expired} proposed {expired === 1 ? "change" : "changes"} expired unanswered this
+            week ·{" "}
           </>
         ) : null}
-        {" "}
-        · items past due over two days, and earlier notices, are on the{" "}
-        <Link href="/past">Past items</Link> page
-        {closed.size > 0 ? (
-          <>
-            {" "}
-            · {closed.size} closed since then, <Link href="/items">see items</Link>
-          </>
-        ) : null}
+        Items past due over two days are on the <Link href="/past">Past items</Link> page
       </p>
-      <Section title="Overdue" empty="Nothing overdue." items={digest.overdue} zone={zone} />
-      <Section
-        title="Due in the next 7 days"
-        empty="Nothing due this week."
-        items={active(digest.due_soon)}
-        zone={zone}
-      />
-      <Section
-        title="Needs review"
-        empty="Nothing to check."
-        items={active(digest.needs_review)}
-        zone={zone}
-      />
-      <Section
-        title={digest.since ? "New since the last digest" : "New"}
-        empty="No new items."
-        items={active(digest.new)}
-        zone={zone}
-      />
-      <NoticeSection
-        title={digest.since ? "Notices since the last digest" : "Notices"}
-        empty="No notices."
-        groups={digest.notice_groups}
-        zone={zone}
-        later={digest.later_notices}
-      />
+      <Section title="Due" empty="Nothing due." items={home.due} zone={zone} />
+      <Section title="To-do" empty="Nothing to do." items={home.todo} zone={zone} />
+      <NoticeSection title="Notices" empty="No notices." groups={home.notice_groups} zone={zone} />
     </>
   );
 }
@@ -458,19 +412,19 @@ function AccountPanel({ accounts, zone }: { accounts: Account[] | "error"; zone:
   );
 }
 
-// Loads all three in parallel; account times use the digest zone, or UTC before the first digest
+// Loads all three in parallel; account times use the home page's zone
 export async function Dashboard() {
-  const [digest, accounts, proposals] = await Promise.all([
-    load<Digest | null>("/digest"),
+  const [home, accounts, proposals] = await Promise.all([
+    load<Home>("/home"),
     load<Account[]>("/accounts"),
     load<Proposal[]>("/proposals"),
   ]);
-  const zone = digest && digest !== "error" ? digest.timezone : "UTC";
+  const zone = home === "error" ? "UTC" : home.timezone;
   return (
     <>
       <AccountPanel accounts={accounts} zone={zone} />
       <ProposalList proposals={proposals} zone={zone} />
-      <DigestView digest={digest} />
+      <HomeView home={home} />
     </>
   );
 }
