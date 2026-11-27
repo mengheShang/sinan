@@ -36,3 +36,29 @@ export async function check(form: FormData): Promise<void> {
   const result = resp.ok ? "checked" : "check_failed";
   redirect(`/accounts?oauth=${result}`);
 }
+
+const PURPOSES = new Set(["write", "calendar"]);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// "Enable actions" (write) or "Connect calendar" for one account (ADR 0021).
+// The API answers with Google's consent page for that account's address.
+export async function authorize(form: FormData): Promise<void> {
+  const id = String(form.get("id") ?? "");
+  const purpose = String(form.get("purpose") ?? "");
+  if (!UUID.test(id) || !PURPOSES.has(purpose)) {
+    redirect("/accounts?oauth=error");
+  }
+  const path = `/accounts/${encodeURIComponent(id)}/oauth/${purpose}`;
+  const resp = await apiFetch(path, { method: "POST" });
+  if (resp.status === 401) {
+    redirect("/login");
+  }
+  if (resp.status === 409) {
+    redirect("/accounts?oauth=not_set_up");
+  }
+  if (!resp.ok) {
+    redirect("/accounts?oauth=error");
+  }
+  const body: { url: string } = await resp.json();
+  redirect(body.url);
+}

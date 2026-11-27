@@ -1,7 +1,12 @@
-"""OAuth interface for connecting a mailbox with read-only access.
+"""OAuth interface: read, write and calendar authorization (ADR 0003, ADR 0021).
 
-Only `gmail.readonly` is ever requested here. Write and Calendar scopes come
-in M3 and will get their own flow, held by the Executor.
+Each flow requests exactly one set of scopes:
+
+- read: `gmail.readonly`, held by the Worker.
+- write: `gmail.modify`, sealed for the Executor (ADR 0021, decision 2).
+- calendar: `calendar.events`, plus `openid` and `email` only so the callback
+  can check which Google account granted it (owner, 2026-11-19). Sealed for
+  the Executor too.
 """
 
 import base64
@@ -13,6 +18,12 @@ from pydantic import SecretStr
 
 # The one scope this flow may request. tests/test_oauth.py fails if it changes.
 READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+WRITE_SCOPE = "https://www.googleapis.com/auth/gmail.modify"
+CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events"
+# Asked as "openid email"; Google reports "email" by its full name
+OPENID = "openid"
+EMAIL_ASKED = "email"
+EMAIL_GRANTED = "https://www.googleapis.com/auth/userinfo.email"
 
 
 def pkce_challenge(verifier: str) -> str:
@@ -39,8 +50,17 @@ class TokenGrant:
 
 
 class OAuthClient(Protocol):
-    def authorize_url(self, state: str, challenge: str) -> str:
-        """Return the consent page URL for a PKCE (S256) authorization request."""
+    def authorize_url(
+        self,
+        state: str,
+        challenge: str,
+        scopes: tuple[str, ...] = (READ_SCOPE,),
+        login_hint: str | None = None,
+    ) -> str:
+        """Return the consent page URL for a PKCE (S256) authorization request.
+
+        `login_hint` suggests the Google account; the callback still checks it.
+        """
         ...
 
     def exchange(self, code: str, verifier: str) -> TokenGrant:
@@ -53,4 +73,9 @@ class OAuthClient(Protocol):
 
     def mailbox_email(self, access_token: SecretStr) -> str:
         """Return the address of the authorized mailbox. Raises OAuthError."""
+        ...
+
+    def account_email(self, access_token: SecretStr) -> str:
+        """Return the verified address of the authorized Google account, from
+        the OpenID userinfo endpoint (needs `openid email`). Raises OAuthError."""
         ...
