@@ -14,6 +14,8 @@ from app.providers.mail import (
     MessageNotFoundError,
 )
 from app.providers.oauth import (
+    EMAIL_ASKED,
+    EMAIL_GRANTED,
     READ_SCOPE,
     OAuthError,
     ReauthRequiredError,
@@ -152,10 +154,22 @@ class FakeOAuth:
         self._challenges: dict[str, str] = {}
         self._issued = 0
         self.revoked: set[str] = set()
+        # (scopes, login_hint) of each consent URL, for tests
+        self.asked: list[tuple[tuple[str, ...], str | None]] = []
+        # Granted scopes per requested scope set; the fake grants what was
+        # asked unless a test sets `scopes` or adds an entry here
+        self.grants: dict[tuple[str, ...], frozenset[str]] = {}
 
-    def authorize_url(self, state: str, challenge: str) -> str:
+    def authorize_url(
+        self,
+        state: str,
+        challenge: str,
+        scopes: tuple[str, ...] = (READ_SCOPE,),
+        login_hint: str | None = None,
+    ) -> str:
         code = f"fake-code-{len(self._challenges)}"
         self._challenges[code] = challenge
+        self.asked.append((scopes, login_hint))
         query = urlencode({"state": state, "code": code})
         return f"{self.redirect_uri}?{query}"
 
@@ -166,7 +180,15 @@ class FakeOAuth:
         self._issued += 1
         refresh = SecretStr(f"fake-refresh-{self._issued}")
         access = SecretStr(f"fake-access-{self._issued}")
-        return TokenGrant(refresh, access, self.scopes)
+        asked = self.asked[-1][0] if self.asked else (READ_SCOPE,)
+        return TokenGrant(refresh, access, self.grants.get(asked, self.granted_for(asked)))
+
+    def granted_for(self, asked: tuple[str, ...]) -> frozenset[str]:
+        """What Google reports for a full grant of `asked`; `scopes` for read."""
+        if asked == (READ_SCOPE,):
+            return self.scopes
+        names = {EMAIL_ASKED: EMAIL_GRANTED}
+        return frozenset(names.get(s, s) for s in asked)
 
     def refresh(self, refresh_token: SecretStr) -> SecretStr:
         value = refresh_token.get_secret_value()
@@ -175,4 +197,7 @@ class FakeOAuth:
         return SecretStr("fake-access-refreshed")
 
     def mailbox_email(self, access_token: SecretStr) -> str:
+        return self.email
+
+    def account_email(self, access_token: SecretStr) -> str:
         return self.email

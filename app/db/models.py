@@ -180,6 +180,12 @@ class Credential(Base):
     scopes: Mapped[str] = mapped_column(Text)
     # When the user last authorized; used to warn before the 7-day expiry
     authorized_at: Mapped[datetime] = mapped_column(UTC_TS)
+    # Set by the token's user when the token is refused (migration 0011), for
+    # write and calendar tokens; a read token's health stays in sync_states.
+    # Cleared when the owner authorizes again.
+    needs_reauth: Mapped[bool] = mapped_column(server_default=text("false"))
+    # Error code only, never a token or message content
+    last_error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = created_at()
     updated_at: Mapped[datetime] = updated_at()
 

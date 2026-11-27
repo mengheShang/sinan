@@ -64,7 +64,7 @@ def test_downgrade_then_upgrade(sibling: str) -> None:
         with engine.connect() as c:
             assert "due_suggestions" not in sa.inspect(c).get_table_names()
         command.upgrade(cfg, "head")
-        assert current(engine) == "0010"
+        assert current(engine) == "0011"
         assert len(triggers(engine)) == 2
     finally:
         engine.dispose()

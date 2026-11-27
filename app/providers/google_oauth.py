@@ -14,6 +14,7 @@ from app.providers.oauth import READ_SCOPE, OAuthError, ReauthRequiredError, Tok
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105 - an endpoint, not a secret
 PROFILE_URL = "https://gmail.googleapis.com/gmail/v1/users/me/profile"
+USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 TIMEOUT = 15.0
 
 
@@ -42,12 +43,18 @@ class GoogleOAuth:
         self.redirect_uri = redirect_uri
         self._http = http or httpx.Client(timeout=TIMEOUT)
 
-    def authorize_url(self, state: str, challenge: str) -> str:
+    def authorize_url(
+        self,
+        state: str,
+        challenge: str,
+        scopes: tuple[str, ...] = (READ_SCOPE,),
+        login_hint: str | None = None,
+    ) -> str:
         params = {
             "client_id": self.client_id,
             "redirect_uri": self.redirect_uri,
             "response_type": "code",
-            "scope": READ_SCOPE,
+            "scope": " ".join(scopes),
             "state": state,
             "code_challenge": challenge,
             "code_challenge_method": "S256",
@@ -56,6 +63,8 @@ class GoogleOAuth:
             "prompt": "consent",
             "include_granted_scopes": "false",
         }
+        if login_hint is not None:
+            params["login_hint"] = login_hint
         return f"{AUTH_URL}?{urlencode(params)}"
 
     def _post_token(self, form: dict[str, str]) -> dict[str, object]:
@@ -114,4 +123,20 @@ class GoogleOAuth:
         email = body.get("emailAddress") if isinstance(body, dict) else None
         if not isinstance(email, str) or "@" not in email:
             raise OAuthError("Gmail profile has no address")
+        return email
+
+    def account_email(self, access_token: SecretStr) -> str:
+        headers = {"Authorization": f"Bearer {access_token.get_secret_value()}"}
+        try:
+            resp = self._http.get(USERINFO_URL, headers=headers)
+        except httpx.HTTPError as exc:
+            raise OAuthError("userinfo unreachable") from exc
+        if resp.status_code != 200:
+            raise OAuthError(error_code(resp))
+        body = resp.json()
+        if not isinstance(body, dict) or body.get("email_verified") is not True:
+            raise OAuthError("userinfo has no verified address")
+        email = body.get("email")
+        if not isinstance(email, str) or "@" not in email:
+            raise OAuthError("userinfo has no verified address")
         return email

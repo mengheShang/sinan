@@ -78,7 +78,16 @@ def test_missing_credential_is_none(
     cipher: TokenCipher,
     account: uuid.UUID,
 ) -> None:
-    assert load_credential(session, cipher, account, "write") is None
+    assert load_credential(session, cipher, account, "read") is None
+
+
+@pytest.mark.parametrize("purpose", ["write", "calendar"])
+def test_sealed_purposes_are_never_opened_here(
+    session: Session, cipher: TokenCipher, account: uuid.UUID, purpose: str
+) -> None:
+    """Write and calendar tokens are sealed; only the Executor opens them (ADR 0021)."""
+    with pytest.raises(ValueError):
+        load_credential(session, cipher, account, purpose)
 
 
 def test_ciphertext_copied_to_write_row_fails(
@@ -96,8 +105,11 @@ def test_ciphertext_copied_to_write_row_fails(
         authorized_at=NOW,
     )
     session.execute(copy)
-    with pytest.raises(DecryptError):
+    # Not opened here at all; and the read key would not open it as a write row
+    with pytest.raises(ValueError):
         load_credential(session, cipher, account, "write")
+    with pytest.raises(DecryptError):
+        cipher.decrypt(blob, account, "write")
 
 
 def test_loaded_token_is_masked_in_repr(
